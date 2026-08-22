@@ -119,7 +119,7 @@ def test_rendering(env):
 
         # Boss 血条
         pygame.draw.rect(screen, (200, 0, 0), (boss_pos[0] - 30, boss_pos[1] - 55, 60, 6))
-        pygame.draw.rect(screen, (0, 255, 0), (boss_pos[0] - 30, boss_pos[1] - 55, 60 * hp_ratio, 6))
+        pygame.draw.rect(screen, (0, 255, 0), (boss_pos[0] - 30, boss_pos[1] - 55, int(60 * hp_ratio), 6))
 
         # ==========================================
         # 绘制 Agents 与充能条
@@ -135,7 +135,7 @@ def test_rendering(env):
                 # 血条
                 agent_hp_ratio = max(0, env.agents[i, 2]) / Config.AGENT_MAX_HP
                 pygame.draw.rect(screen, (200, 0, 0), (agent_pos[0] - 15, agent_pos[1] - 25, 30, 4))
-                pygame.draw.rect(screen, (0, 255, 0), (agent_pos[0] - 15, agent_pos[1] - 25, 30 * agent_hp_ratio, 4))
+                pygame.draw.rect(screen, (0, 255, 0), (agent_pos[0] - 15, agent_pos[1] - 25, int(30 * agent_hp_ratio), 4))
 
                 # 充能条 (黄色)
                 charge_ratio = env.agents[i, 5]
@@ -144,7 +144,7 @@ def test_rendering(env):
                     pygame.draw.rect(screen, (0, 255, 255), (agent_pos[0] - 15, agent_pos[1] - 20, 30, 3))  # 满充能青色
                 else:
                     pygame.draw.rect(screen, (255, 215, 0),
-                                     (agent_pos[0] - 15, agent_pos[1] - 20, 30 * charge_ratio, 3))
+                                     (agent_pos[0] - 15, agent_pos[1] - 20, int(30 * charge_ratio), 3))
 
         # ==========================================
         # 绘制飞行中的导弹
