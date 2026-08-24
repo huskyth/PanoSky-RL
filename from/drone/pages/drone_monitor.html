@@ -1,0 +1,1117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多无人机地形监控系统 - 战术版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background: #0f172a; font-family: 'Segoe UI', system-ui, sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+        .drone-card, .weapon-card, .target-card {
+            transition: all 0.3s ease;
+            border-left: 3px solid transparent;
+        }
+        .drone-card:hover, .weapon-card:hover, .target-card:hover { transform: translateX(4px); }
+        .drone-card.active { border-left-color: #38bdf8; background: rgba(56, 189, 248, 0.1); }
+        .weapon-card.active { border-left-color: #f59e0b; background: rgba(245, 158, 11, 0.1); }
+        .target-card.active { border-left-color: #ef4444; background: rgba(239, 68, 68, 0.1); }
+        .status-dot { animation: pulse 2s infinite; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; box-shadow: 0 0 8px currentColor; }
+            50% { opacity: 0.6; box-shadow: 0 0 4px currentColor; }
+        }
+        #notification-toast {
+            transform: translateX(120%);
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        #notification-toast.show { transform: translateX(0); }
+        .entity-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .badge-drone { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
+        .badge-weapon { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); }
+        .badge-target { background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
+        .tab-btn {
+            padding: 6px 12px;
+            font-size: 12px;
+            border-radius: 6px;
+            transition: all 0.2s;
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            color: #94a3b8;
+        }
+        .tab-btn:hover { color: #e2e8f0; }
+        .tab-btn.active { background: rgba(56, 189, 248, 0.15); color: #38bdf8; }
+        .data-source-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        .source-file { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+        .source-sim { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+        .source-wait { background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); }
+    </style>
+</head>
+<body class="text-slate-200">
+    <!-- 3D Canvas -->
+    <div id="canvas-container"></div>
+
+    <!-- 顶部状态栏 -->
+    <div class="absolute top-0 left-0 right-0 z-10 glass-panel px-6 py-3 flex justify-between items-center">
+        <div class="flex items-center gap-4">
+            <div class="w-3 h-3 rounded-full bg-emerald-400 status-dot"></div>
+            <h1 class="text-xl font-bold text-sky-400 tracking-wider">TACTICAL UAV COMMAND</h1>
+            <span class="text-xs text-slate-400 bg-slate-800 px-2 py-1 rounded border border-slate-700">SYSTEM ONLINE</span>
+            <span class="text-xs text-purple-400 bg-purple-900/20 px-2 py-1 rounded border border-purple-700/30" id="terrain-mode">地形: 程序生成</span>
+            <span id="data-source" class="data-source-badge source-wait">
+                <span class="w-1.5 h-1.5 rounded-full bg-current animate-pulse"></span>
+                等待数据文件...
+            </span>
+        </div>
+        <div class="flex items-center gap-6 text-sm">
+            <div class="flex items-center gap-2">
+                <svg class="w-4 h-4 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <span id="clock" class="font-mono text-sky-300">00:00:00</span>
+            </div>
+            <div class="flex items-center gap-3">
+                <div class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-sky-400"></span><span class="text-slate-400">无人机:</span><span id="drone-count" class="text-sky-400 font-bold">0</span></div>
+                <div class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-amber-400"></span><span class="text-slate-400">武器:</span><span id="weapon-count" class="text-amber-400 font-bold">0</span></div>
+                <div class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-red-400"></span><span class="text-slate-400">目标:</span><span id="target-count" class="text-red-400 font-bold">0</span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 左侧实体列表面板 -->
+    <div class="absolute left-4 top-20 bottom-4 w-80 z-10 glass-panel rounded-xl flex flex-col">
+        <div class="p-4 border-b border-slate-700/50">
+            <div class="flex justify-between items-center mb-3">
+                <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider">战场实体监控</h2>
+                <button onclick="app.togglePolling()" id="polling-btn" class="text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors">
+                    暂停轮询
+                </button>
+            </div>
+            <div class="flex gap-1 bg-slate-800/50 rounded-lg p-1">
+                <button class="tab-btn active flex-1" onclick="app.switchTab('all')" id="tab-all">全部</button>
+                <button class="tab-btn flex-1" onclick="app.switchTab('drone')" id="tab-drone">无人机</button>
+                <button class="tab-btn flex-1" onclick="app.switchTab('weapon')" id="tab-weapon">武器</button>
+                <button class="tab-btn flex-1" onclick="app.switchTab('target')" id="tab-target">目标</button>
+            </div>
+        </div>
+        <div id="entity-list" class="flex-1 overflow-y-auto p-3 space-y-2">
+            <div class="text-center text-slate-500 py-8 text-sm">
+                <div class="mb-2">等待数据接入...</div>
+                <div class="text-xs text-slate-600">请将以下JSON文件放在同一目录：</div>
+                <div class="text-xs text-sky-500 mt-1 font-mono">drone_data.json</div>
+                <div class="text-xs text-amber-500 font-mono">entity_data.json</div>
+                <div class="text-xs text-purple-500 font-mono">terrain_data.json</div>
+            </div>
+        </div>
+        <div class="p-4 border-t border-slate-700/50 text-xs text-slate-500 space-y-2">
+            <div class="flex justify-between">
+                <span>数据模式:</span>
+                <span class="text-emerald-400">文件轮询 (1秒)</span>
+            </div>
+            <div class="flex justify-between">
+                <span>轮询文件:</span>
+                <span class="text-slate-300">drone_data.json, entity_data.json</span>
+            </div>
+            <div class="flex justify-between">
+                <span>地形文件:</span>
+                <span class="text-slate-300">terrain_data.json</span>
+            </div>
+            <div class="flex justify-between">
+                <span>最后更新:</span>
+                <span id="last-update" class="text-slate-300">--</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右侧详情面板 -->
+    <div class="absolute right-4 top-20 w-72 z-10 glass-panel rounded-xl p-4" id="detail-panel" style="display:none;">
+        <div class="flex justify-between items-start mb-4">
+            <div>
+                <span id="detail-badge" class="entity-badge badge-drone mb-2">无人机</span>
+                <h3 class="text-lg font-bold text-sky-400" id="detail-id">UAV-001</h3>
+            </div>
+            <button onclick="document.getElementById('detail-panel').style.display='none'" class="text-slate-500 hover:text-slate-300">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+        <div class="space-y-3 text-sm" id="detail-content"></div>
+    </div>
+
+    <!-- 底部控制栏 -->
+    <div class="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 glass-panel rounded-full px-6 py-2 flex items-center gap-6">
+        <button onclick="app.toggleTrajectories()" class="flex items-center gap-2 text-sm hover:text-sky-400 transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+            <span>轨迹</span>
+        </button>
+        <div class="w-px h-4 bg-slate-700"></div>
+        <button onclick="app.toggleRanges()" class="flex items-center gap-2 text-sm hover:text-amber-400 transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+            <span>覆盖范围</span>
+        </button>
+        <div class="w-px h-4 bg-slate-700"></div>
+        <button onclick="app.toggleTerrain()" class="flex items-center gap-2 text-sm hover:text-sky-400 transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0121 18.382V7.618a1 1 0 01-.553-.894L15 7m0 13V7"></path></svg>
+            <span>地形</span>
+        </button>
+        <div class="w-px h-4 bg-slate-700"></div>
+        <button onclick="app.resetCamera()" class="flex items-center gap-2 text-sm hover:text-sky-400 transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path></svg>
+            <span>重置视角</span>
+        </button>
+        <div class="w-px h-4 bg-slate-700"></div>
+        <button onclick="app.simulateData()" class="flex items-center gap-2 text-sm text-amber-400 hover:text-amber-300 transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            <span>模拟数据</span>
+        </button>
+    </div>
+
+    <!-- 通知提示 -->
+    <div id="notification-toast" class="absolute top-20 right-4 z-20 glass-panel rounded-lg p-4 max-w-sm border-l-4 border-sky-400">
+        <div class="flex items-start gap-3">
+            <div class="text-sky-400 mt-0.5">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            </div>
+            <div>
+                <h4 class="font-semibold text-sm text-slate-200" id="toast-title">数据已更新</h4>
+                <p class="text-xs text-slate-400 mt-1" id="toast-msg">收到战场实体最新状态</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== 核心应用类 ====================
+        class TacticalMonitorApp {
+            constructor() {
+                this.drones = new Map();
+                this.weapons = new Map();
+                this.targets = new Map();
+                this.weaponAimLines = new Map();
+                this.scene = null;
+                this.camera = null;
+                this.renderer = null;
+                this.controls = null;
+                this.terrain = null;
+                this.terrainWireframe = null;
+                this.showTrajectories = true;
+                this.showRanges = true;
+                this.showTerrain = true;
+                this.selectedEntity = null;
+                this.currentTab = 'all';
+                this.altChart = null;
+                this.pollingEnabled = true;
+                this.pollingInterval = null;
+                this.lastDroneHash = '';
+                this.lastEntityHash = '';
+                this.lastTerrainHash = '';
+                this.dataSource = 'wait'; // wait, file, sim
+
+                this.initThreeJS();
+                this.initTerrain();
+                this.startPolling();
+                this.animate();
+                this.startClock();
+
+<!--                setTimeout(() => this.simulateData(), 800);-->
+            }
+
+            initThreeJS() {
+                const container = document.getElementById('canvas-container');
+
+                this.scene = new THREE.Scene();
+                this.scene.background = new THREE.Color(0x0f172a);
+<!--                this.scene.fog = new THREE.Fog(0x0f172a, 100, 500);-->
+                this.scene.fog = new THREE.Fog(0x0f172a, 300, 1800);
+
+                this.world = new THREE.Group();
+                this.scene.add(this.world);
+
+                this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 50000);
+                this.camera.position.set(100, 80, 100);
+
+                this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                this.renderer.shadowMap.enabled = true;
+                container.appendChild(this.renderer.domElement);
+
+                this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+                this.controls.enableDamping = true;
+                this.controls.dampingFactor = 0.08;
+                this.controls.maxPolarAngle = Math.PI / 2.2;
+                this.controls.minDistance = 20;
+                this.controls.maxDistance = 50000;
+
+                const ambientLight = new THREE.AmbientLight(0x404040, 1.5);
+                this.scene.add(ambientLight);
+
+                const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+                dirLight.position.set(50, 100, 50);
+                dirLight.castShadow = true;
+                dirLight.shadow.camera.left = -150;
+                dirLight.shadow.camera.right = 150;
+                dirLight.shadow.camera.top = 150;
+                dirLight.shadow.camera.bottom = -150;
+                this.scene.add(dirLight);
+
+                const gridHelper = new THREE.GridHelper(300, 60, 0x1e293b, 0x1e293b);
+                this.world.add(gridHelper); // 加到根节点
+
+                window.addEventListener('resize', () => this.onWindowResize());
+                this.world.scale.set(1, 1, 1);
+                // 显示坐标轴 X:红 Y:绿 Z:蓝
+                const axesHelper = new THREE.AxesHelper(300);
+                this.world.add(axesHelper);
+
+                // X+ 方向标签
+                const xLabel = this.createAxisLabel('X+', 0xff0000);
+                xLabel.position.set(150, 0, 0);
+                this.world.add(xLabel);
+
+                // Y+ 方向标签
+                const yLabel = this.createAxisLabel('Y+', 0x00ff00);
+                yLabel.position.set(0, 150, 0);
+                this.world.add(yLabel);
+
+                // Z+ 方向标签
+                const zLabel = this.createAxisLabel('Z+', 0x0000ff);
+                zLabel.position.set(0, 0, 150);
+                this.world.add(zLabel);
+
+            }
+
+            // 创建坐标轴方向标签
+            createAxisLabel(text, color) {
+              const canvas = document.createElement('canvas');
+              const size = 128;
+              canvas.width = size;
+              canvas.height = size;
+              const ctx = canvas.getContext('2d');
+              ctx.font = 'Bold 80px Arial';
+              ctx.fillStyle = '#ffffff';
+              ctx.textAlign = 'center';
+              ctx.fillText(text, size/2, size/2 + 20);
+
+              const tex = new THREE.CanvasTexture(canvas);
+              const spriteMat = new THREE.SpriteMaterial({ map: tex, color: color });
+              const sprite = new THREE.Sprite(spriteMat);
+              sprite.scale.set(20, 20, 1);
+              return sprite;
+            }
+
+            // 创建武器到目标的瞄准线
+            createAimLine() {
+                const points = [
+                    new THREE.Vector3(0,0,0),
+                    new THREE.Vector3(10,10,10)
+                ];
+                const geo = new THREE.BufferGeometry().setFromPoints(points);
+                const mat = new THREE.LineBasicMaterial({
+                    color: 0xff3333,
+                    linewidth: 2
+                });
+                const line = new THREE.Line(geo, mat);
+                return line;
+            }
+
+            // ==================== 地形系统 ====================
+            initTerrain(externalData = null) {
+                // 【关键修复】彻底销毁旧地形，避免新旧叠加
+                if (this.terrain) {
+                    this.world.remove(this.terrain);
+                    this.terrain.geometry.dispose();
+                    this.terrain.material.dispose();
+                    this.terrain = null;
+                }
+                if (this.terrainWireframe) {
+                    this.world.remove(this.terrainWireframe);
+                    this.terrainWireframe.geometry.dispose();
+                    this.terrainWireframe.material.dispose();
+                    this.terrainWireframe = null;
+                }
+
+                const size = 300;
+                const segments = externalData ? Math.sqrt(externalData.length) - 1 : 100;
+                const geometry = new THREE.PlaneGeometry(size, size, segments, segments);
+
+                const positions = geometry.attributes.position;
+
+                if (externalData && externalData.length === positions.count) {
+                    for (let i = 0; i < positions.count; i++) {
+                        positions.setZ(i, externalData[i]);
+                    }
+                    document.getElementById('terrain-mode').textContent = '地形: 外部数据';
+                    document.getElementById('terrain-mode').className = 'text-xs text-purple-400 bg-purple-900/20 px-2 py-1 rounded border border-purple-700/30';
+                } else {
+                    for (let i = 0; i < positions.count; i++) {
+                        const x = positions.getX(i);
+                        const y = positions.getY(i);
+                        const height = Math.sin(x * 0.03) * 12 + Math.cos(y * 0.03) * 12 +
+                                       Math.sin(x * 0.08 + y * 0.05) * 6 +
+                                       Math.sin(x * 0.15) * Math.cos(y * 0.15) * 3 +
+                                       (Math.random() - 0.5) * 1;
+                        positions.setZ(i, height);
+                    }
+                }
+
+                geometry.computeVertexNormals();
+
+                const material = new THREE.MeshStandardMaterial({
+                    color: 0x1e293b,
+                    wireframe: false,
+                    roughness: 0.8,
+                    metalness: 0.2,
+                    flatShading: true
+                });
+
+                this.terrain = new THREE.Mesh(geometry, material);
+                this.terrain.rotation.x = -Math.PI / 2;
+                this.terrain.position.y = 0;
+                this.terrain.receiveShadow = true;
+                this.world.add(this.terrain);
+
+                const wireframeMat = new THREE.MeshBasicMaterial({
+                    color: 0x38bdf8,
+                    wireframe: true,
+                    transparent: true,
+                    opacity: 0.08
+                });
+                this.terrainWireframe = new THREE.Mesh(geometry.clone(), wireframeMat);
+                this.terrainWireframe.rotation.x = -Math.PI / 2;
+                this.terrainWireframe.position.y = 0.0;
+                this.world.add(this.terrainWireframe);
+            }
+
+            // ==================== 文件轮询系统 ====================
+            startPolling() {
+                this.pollingInterval = setInterval(() => {
+                    if (!this.pollingEnabled) return;
+                    this.pollFiles();
+                }, 1000);
+            }
+
+            async pollFiles() {
+                try {
+                    // 轮询无人机数据
+                    const droneResponse = await fetch('drone_data.json', { cache: 'no-cache' });
+                    if (droneResponse.ok) {
+                        const droneText = await droneResponse.text();
+                        const droneHash = this.simpleHash(droneText);
+                        if (droneHash !== this.lastDroneHash) {
+                            this.lastDroneHash = droneHash;
+                            const droneData = JSON.parse(droneText);
+                            this.handleDroneData(droneData);
+                            this.setDataSource('file');
+                        }
+                    }
+                } catch (e) { /* 文件不存在，忽略 */ }
+
+                try {
+                    // 轮询实体数据（武器/目标）
+                    const entityResponse = await fetch('entity_data.json', { cache: 'no-cache' });
+                    if (entityResponse.ok) {
+                        const entityText = await entityResponse.text();
+                        const entityHash = this.simpleHash(entityText);
+                        if (entityHash !== this.lastEntityHash) {
+                            this.lastEntityHash = entityHash;
+                            const entityData = JSON.parse(entityText);
+                            this.handleEntityData(entityData);
+                            this.setDataSource('file');
+                        }
+                    }
+                } catch (e) { /* 文件不存在，忽略 */ }
+
+                try {
+                    // 轮询地形数据
+                    const terrainResponse = await fetch('terrain_data.json', { cache: 'no-cache' });
+                    if (terrainResponse.ok) {
+                        const terrainText = await terrainResponse.text();
+                        const terrainHash = this.simpleHash(terrainText);
+                        if (terrainHash !== this.lastTerrainHash) {
+                            this.lastTerrainHash = terrainHash;
+                            const terrainData = JSON.parse(terrainText);
+                            this.handleTerrainData(terrainData);
+                        }
+                    }
+                } catch (e) { /* 文件不存在，忽略 */ }
+            }
+
+            simpleHash(str) {
+                let hash = 0;
+                for (let i = 0; i < str.length; i++) {
+                    const char = str.charCodeAt(i);
+                    hash = ((hash << 5) - hash) + char;
+                    hash = hash & hash;
+                }
+                return hash.toString();
+            }
+
+            setDataSource(source) {
+                if (this.dataSource === source) return;
+                this.dataSource = source;
+                const badge = document.getElementById('data-source');
+                if (source === 'file') {
+                    badge.className = 'data-source-badge source-file';
+                    badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-current"></span>文件数据接入';
+                } else if (source === 'sim') {
+                    badge.className = 'data-source-badge source-sim';
+                    badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-current"></span>模拟数据运行中';
+                }
+            }
+
+            togglePolling() {
+                this.pollingEnabled = !this.pollingEnabled;
+                const btn = document.getElementById('polling-btn');
+                btn.textContent = this.pollingEnabled ? '暂停轮询' : '继续轮询';
+                btn.className = this.pollingEnabled 
+                    ? 'text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors'
+                    : 'text-xs px-2 py-1 rounded bg-amber-700 hover:bg-amber-600 text-amber-100 transition-colors';
+            }
+
+            // ==================== 实体管理 ====================
+            createEntity(data, type) {
+                const id = data.id;
+                const group = new THREE.Group();
+                let rangeRing;
+
+                if (type === 'drone') {
+                    // 机身：超高对比 荧光亮青，强自发光
+                    const bodyGeo = new THREE.ConeGeometry(1.5, 4, 4);
+                    const bodyMat = new THREE.MeshStandardMaterial({
+                    color: 0x00ffff,
+                    emissive: 0x00eeee,
+                    emissiveIntensity: 0.8,
+                    roughness: 0.2,
+                    metalness: 0.3
+                    });
+                    const body = new THREE.Mesh(bodyGeo, bodyMat);
+                    body.rotation.x = Math.PI;
+                    body.castShadow = true;
+                    group.add(body);
+
+                    // 螺旋桨：纯白色高亮，远距离醒目
+                    const propGeo = new THREE.BoxGeometry(4, 0.15, 0.4);
+                    const propMat = new THREE.MeshStandardMaterial({
+                    color: 0xffffff,
+                    emissive: 0xffffff,
+                    emissiveIntensity: 0.6
+                    });
+                    for (let i = 0; i < 4; i++) {
+                    const prop = new THREE.Mesh(propGeo, propMat);
+                    const angle = (i / 4) * Math.PI * 2;
+                    prop.position.set(Math.cos(angle) * 2, 1, Math.sin(angle) * 2);
+                    prop.userData.isPropeller = true;
+                    prop.userData.speed = 0.3 + Math.random() * 0.2;
+                    group.add(prop);
+                    }
+
+                    // 顶部白色指示灯 小点闪烁感
+                    const topLightGeo = new THREE.SphereGeometry(0.4, 8, 8);
+                    const topLightMat = new THREE.MeshStandardMaterial({
+                    color: 0xffffff,
+                    emissive: 0xffffff,
+                    emissiveIntensity: 1.2
+                    });
+                    const topLight = new THREE.Mesh(topLightGeo, topLightMat);
+                    topLight.position.y = 2.2;
+                    group.add(topLight);
+
+                    // 底部红色大光环 强对比地标
+                    const bottomRingGeo = new THREE.RingGeometry(2.2, 3.2, 32);
+                    const bottomRingMat = new THREE.MeshBasicMaterial({
+                    color: 0xff2222,
+                    transparent: true,
+                    opacity: 0.7,
+                    side: THREE.DoubleSide
+                    });
+                    const bottomRing = new THREE.Mesh(bottomRingGeo, bottomRingMat);
+                    bottomRing.rotation.x = -Math.PI / 2;
+                    bottomRing.position.y = -1.8;
+                    group.add(bottomRing);
+
+                } else if (type === 'weapon') {
+                    const baseGeo = new THREE.CylinderGeometry(3, 4, 2, 8);
+                    const baseMat = new THREE.MeshStandardMaterial({ 
+                        color: 0xf59e0b,
+                        emissive: 0xd97706,
+                        emissiveIntensity: 0.2,
+                        roughness: 0.4,
+                        metalness: 0.8
+                    });
+                    const base = new THREE.Mesh(baseGeo, baseMat);
+                    base.position.y = 1;
+                    base.castShadow = true;
+                    group.add(base);
+
+                    const barrelGeo = new THREE.CylinderGeometry(0.4, 0.6, 6, 8);
+                    const barrelMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.9, roughness: 0.2 });
+                    const barrel = new THREE.Mesh(barrelGeo, barrelMat);
+                    barrel.rotation.x = Math.PI / 2;
+                    barrel.position.set(0, 3, 3);
+                    barrel.userData.isBarrel = true;
+                    group.add(barrel);
+
+                    const radarGeo = new THREE.CylinderGeometry(2.5, 2.5, 0.3, 16);
+                    const radarMat = new THREE.MeshStandardMaterial({ 
+                        color: 0x38bdf8, 
+                        emissive: 0x0ea5e9, 
+                        emissiveIntensity: 0.4,
+                        transparent: true,
+                        opacity: 0.9
+                    });
+                    const radar = new THREE.Mesh(radarGeo, radarMat);
+                    radar.position.y = 5;
+                    radar.userData.isRadar = true;
+                    group.add(radar);
+
+                    const range = data.range || 50;
+                    const ringGeo = new THREE.RingGeometry(range - 0.5, range + 0.5, 64);
+                    const ringMat = new THREE.MeshBasicMaterial({ 
+                        color: 0xf59e0b, 
+                        transparent: true, 
+                        opacity: 0.15,
+                        side: THREE.DoubleSide
+                    });
+                    // 射程直接改为 3D 红色球体，半径固定1500
+                    const range_ = 0;
+                    const sphereGeo = new THREE.SphereGeometry(range_, 24, 24);
+                    const sphereMat = new THREE.MeshBasicMaterial({
+                        color: 0xff0000,     // 纯红色
+                        transparent: true,
+                        opacity: 0.08,
+                        depthWrite: false
+                    });
+                    rangeRing = new THREE.Mesh(sphereGeo, sphereMat);
+                    group.add(rangeRing);
+
+                } else if (type === 'target') {
+                    const bodyGeo = new THREE.BoxGeometry(4, 3, 6);
+                    const bodyMat = new THREE.MeshStandardMaterial({ 
+                        color: 0xef4444,
+                        emissive: 0xdc2626,
+                        emissiveIntensity: 0.15,
+                        roughness: 0.6
+                    });
+                    const body = new THREE.Mesh(bodyGeo, bodyMat);
+                    body.position.y = 1.5;
+                    body.castShadow = true;
+                    group.add(body);
+
+                    const markerGeo = new THREE.SphereGeometry(1, 8, 8);
+                    const markerMat = new THREE.MeshBasicMaterial({ 
+                        color: 0xef4444, 
+                        transparent: true, 
+                        opacity: 0.8 
+                    });
+                    const marker = new THREE.Mesh(markerGeo, markerMat);
+                    marker.position.y = 4;
+                    marker.userData.isMarker = true;
+                    group.add(marker);
+
+                    const threatRange = data.threatRange || 30;
+                    const threatGeo = new THREE.RingGeometry(threatRange - 0.3, threatRange + 0.3, 64);
+                    const threatMat = new THREE.MeshBasicMaterial({ 
+                        color: 0xef4444, 
+                        transparent: true, 
+                        opacity: 0.12,
+                        side: THREE.DoubleSide
+                    });
+                    rangeRing = new THREE.Mesh(threatGeo, threatMat);
+                    rangeRing.rotation.x = -Math.PI / 2;
+                    rangeRing.position.y = 0.1;
+                    group.add(rangeRing);
+                }
+
+                const ringColor = type === 'drone' ? 0x10b981 : type === 'weapon' ? 0xf59e0b : 0xef4444;
+                const ringGeo = new THREE.RingGeometry(4, 4.5, 32);
+                const ringMat = new THREE.MeshBasicMaterial({ 
+                    color: ringColor, 
+                    transparent: true, 
+                    opacity: 0.5,
+                    side: THREE.DoubleSide
+                });
+                const ring = new THREE.Mesh(ringGeo, ringMat);
+                ring.rotation.x = -Math.PI / 2;
+                ring.position.y = -2;
+                group.add(ring);
+
+                group.position.set(data.x || 0, data.altitude || (type === 'weapon' || type === 'target' ? 0 : 10), data.z || 0);
+                this.world.add(group); // 所有实体加到根节点
+
+                return {
+                    id,
+                    type,
+                    group,
+                    data,
+                    rangeRing,
+                    trajectory: type === 'drone' ? [] : null,
+                    trajectoryLine: null,
+                    lastUpdate: Date.now(),
+                    targetPosition: group.position.clone()
+                };
+            }
+
+            updateEntity(data, type) {
+                const collection = type === 'drone' ? this.drones : type === 'weapon' ? this.weapons : this.targets;
+                if (!collection.has(data.id)) {
+                    const entity = this.createEntity(data, type);
+                    collection.set(data.id, entity);
+                    this.addEntityCard(entity);
+                    this.updateCounts();
+                }
+
+                const entity = collection.get(data.id);
+                entity.data = { ...entity.data, ...data };
+                entity.lastUpdate = Date.now();
+
+                if (type === 'drone' && data.x !== undefined && data.z !== undefined) {
+                    entity.targetPosition = new THREE.Vector3(data.x, data.altitude || 10, data.z);
+                    entity.trajectory.push({ x: data.x, y: data.altitude || 10, z: data.z });
+                    if (entity.trajectory.length > 50) entity.trajectory.shift();
+                    this.updateTrajectoryLine(entity);
+                }
+
+                // + 武器坐标更新
+                if (type === 'weapon' && data.x !== undefined && data.z !== undefined) {
+                    const y = data.altitude; // 合理默认高度
+                    entity.targetPosition = new THREE.Vector3(data.x, y, data.z);
+                    // 可选轨迹，不需要可以删掉 trajectory 相关
+                }
+
+                // + 目标坐标更新
+                if (type === 'target' && data.x !== undefined && data.z !== undefined) {
+                    const y = data.altitude; // 目标默认贴地
+                    entity.targetPosition = new THREE.Vector3(data.x, y, data.z);
+                    // 目标一般不需要长轨迹，可短一点或关闭
+                }
+
+                if (entity.rangeRing) {
+                    entity.rangeRing.visible = this.showRanges;
+                }
+
+                this.updateEntityCard(entity);
+                if (this.selectedEntity === `${type}-${data.id}`) {
+                    this.updateDetailPanel(entity);
+                }
+            }
+
+            updateTrajectoryLine(entity) {
+                if (!this.showTrajectories || !entity.trajectory || entity.trajectory.length < 2) {
+                    if (entity.trajectoryLine) entity.trajectoryLine.visible = false;
+                    return;
+                }
+
+                if (entity.trajectoryLine) this.scene.remove(entity.trajectoryLine);
+
+                const points = entity.trajectory.map(p => new THREE.Vector3(p.x, p.y, p.z));
+                const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                const material = new THREE.LineBasicMaterial({ 
+                    color: 0x38bdf8, 
+                    transparent: true, 
+                    opacity: 0.6 
+                });
+
+                entity.trajectoryLine = new THREE.Line(geometry, material);
+                this.world.add(entity.trajectoryLine);
+            }
+
+            // ==================== UI 管理 ====================
+            addEntityCard(entity) {
+                const list = document.getElementById('entity-list');
+                if ((this.drones.size + this.weapons.size + this.targets.size) === 1) list.innerHTML = '';
+
+                const card = document.createElement('div');
+                card.id = `card-${entity.type}-${entity.id}`;
+                card.className = `${entity.type}-card bg-slate-800/50 rounded-lg p-3 cursor-pointer`;
+                card.onclick = () => this.selectEntity(entity.type, entity.id);
+
+                const badgeClass = entity.type === 'drone' ? 'badge-drone' : entity.type === 'weapon' ? 'badge-weapon' : 'badge-target';
+                const badgeText = entity.type === 'drone' ? '无人机' : entity.type === 'weapon' ? '武器' : '目标';
+
+                card.innerHTML = `
+                    <div class="flex justify-between items-center mb-2">
+                        <div class="flex items-center gap-2">
+                            <span class="entity-badge ${badgeClass}">${badgeText}</span>
+                            <span class="font-mono font-bold ${entity.type === 'drone' ? 'text-sky-400' : entity.type === 'weapon' ? 'text-amber-400' : 'text-red-400'}">${entity.id}</span>
+                        </div>
+                        <span class="status-dot w-2 h-2 rounded-full ${entity.type === 'drone' ? 'bg-emerald-400' : entity.type === 'weapon' ? 'bg-amber-400' : 'bg-red-400'}"></span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 text-xs" id="card-content-${entity.type}-${entity.id}">
+                        ${this.getCardContent(entity)}
+                    </div>
+                `;
+
+                list.appendChild(card);
+                this.filterList();
+            }
+
+            getCardContent(entity) {
+                const d = entity.data;
+                if (entity.type === 'drone') {
+                    return `
+                        <div class="text-slate-400">高度: <span class="text-slate-200 font-mono">${(d.altitude || 0).toFixed(1)}</span>m</div>
+                        <div class="text-slate-400">电量: <span class="text-slate-200 font-mono">${d.battery || '--'}</span>%</div>
+                        <div class="text-slate-400">速度: <span class="text-slate-200 font-mono">${(d.speed || 0).toFixed(1)}</span>m/s</div>
+                        <div class="text-slate-400">状态: <span class="text-emerald-400">在线</span></div>
+                    `;
+                } else if (entity.type === 'weapon') {
+                    return `
+                        <div class="text-slate-400">射程: <span class="text-slate-200 font-mono">${d.range || 50}</span>m</div>
+                        <div class="text-slate-400">弹药: <span class="text-slate-200 font-mono">${d.ammo || '--'}</span></div>
+                        <div class="text-slate-400">方位: <span class="text-slate-200 font-mono">${d.azimuth || 0}°</span></div>
+                        <div class="text-slate-400">状态: <span class="text-amber-400">待命</span></div>
+                    `;
+                } else {
+                    return `
+                        <div class="text-slate-400">威胁: <span class="text-slate-200 font-mono">${d.threatLevel || '中'}</span></div>
+                        <div class="text-slate-400">类型: <span class="text-slate-200 font-mono">${d.targetType || '未知'}</span></div>
+                        <div class="text-slate-400">范围: <span class="text-slate-200 font-mono">${d.threatRange || 30}</span>m</div>
+                        <div class="text-slate-400">状态: <span class="text-red-400">锁定</span></div>
+                    `;
+                }
+            }
+
+            updateEntityCard(entity) {
+                const content = document.getElementById(`card-content-${entity.type}-${entity.id}`);
+                if (content) content.innerHTML = this.getCardContent(entity);
+            }
+
+            switchTab(tab) {
+                this.currentTab = tab;
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.getElementById(`tab-${tab}`).classList.add('active');
+                this.filterList();
+            }
+
+            filterList() {
+                const allCards = document.querySelectorAll('.drone-card, .weapon-card, .target-card');
+                allCards.forEach(card => {
+                    if (this.currentTab === 'all') {
+                        card.style.display = 'block';
+                    } else {
+                        card.style.display = card.classList.contains(`${this.currentTab}-card`) ? 'block' : 'none';
+                    }
+                });
+            }
+
+            selectEntity(type, id) {
+                this.selectedEntity = `${type}-${id}`;
+                document.querySelectorAll('.drone-card, .weapon-card, .target-card').forEach(c => c.classList.remove('active'));
+                document.getElementById(`card-${type}-${id}`)?.classList.add('active');
+
+                const collection = type === 'drone' ? this.drones : type === 'weapon' ? this.weapons : this.targets;
+                const entity = collection.get(id);
+                if (!entity) return;
+
+                document.getElementById('detail-panel').style.display = 'block';
+                this.updateDetailPanel(entity);
+
+                const pos = entity.group.position;
+                this.controls.target.set(pos.x, pos.y + 5, pos.z);
+
+                if (type === 'drone') this.updateAltChart(entity);
+            }
+
+            updateDetailPanel(entity) {
+                const d = entity.data;
+                const badge = document.getElementById('detail-badge');
+                const title = document.getElementById('detail-id');
+                const content = document.getElementById('detail-content');
+
+                if (entity.type === 'drone') {
+                    badge.className = 'entity-badge badge-drone mb-2';
+                    badge.textContent = '无人机';
+                    title.className = 'text-lg font-bold text-sky-400';
+                    title.textContent = entity.id;
+                    content.innerHTML = `
+                        <div class="flex justify-between p-2 bg-slate-800/50 rounded"><span class="text-slate-400">高度</span><span class="font-mono text-sky-300">${(d.altitude || 0).toFixed(1)}m</span></div>
+                        <div class="flex justify-between p-2 bg-slate-800/50 rounded"><span class="text-slate-400">速度</span><span class="font-mono text-sky-300">${(d.speed || 0).toFixed(1)}m/s</span></div>
+                        <div class="flex justify-between p-2 bg-slate-800/50 rounded"><span class="text-slate-400">电量</span><span class="font-mono ${(d.battery || 100) < 20 ? 'text-red-400' : (d.battery || 100) < 50 ? 'text-amber-400' : 'text-emerald-400'}">${d.battery || 0}%</span></div>
+                        <div class="flex justify-between p-2 bg-slate-800/50 rounded"><span class="text-slate-400">坐标</span><span class="font-mono text-xs text-slate-300">${(d.x || 0).toFixed(4)}, ${(d.z || 0).toFixed(4)}</span></div>
+                        <div class="mt-4"><span class="text-xs text-slate-500 block mb-2">高度趋势</span><canvas id="alt-chart" height="80"></canvas></div>
+                    `;
+                } else if (entity.type === 'weapon') {
+                    badge.className = 'entity-badge badge-weapon mb-2';
+                    badge.textContent = '武器站';
+                    title.className = 'text-lg font-bold text-amber-400';
+                    title.textContent = entity.id;
+                    content.innerHTML = `
+                        <div class="flex justify-between p-2 bg-slate-800/50 rounded"><span class="text-slate-400">射程</span><span class="font-mono text-amber-300">${d.range || 50}m</span></div>
+                        <div class="flex justify-between p-2 bg-slate-800/50 rounded"><span class="text-slate-400">剩余弹药</span><span class="font-mono text-amber-300">${d.ammo || '--'}</span></div>
+                        <div class="flex justify-between p-2 bg-slate-800/50 rounded"><span class="text-slate-400">方位角</span><span class="font-mono text-amber-300">${d.azimuth || 0}°</span></div>
+                        <div class="flex justify-between p-2 bg-slate-800/50 rounded"><span class="text-slate-400">俯仰角</span><span class="font-mono text-amber-300">${d.elevation || 0}°</span></div>
+                        <div class="flex justify-between p-2 bg-slate-800/50 rounded"><span class="text-slate-400">坐标</span><span class="font-mono text-xs text-slate-300">${(d.x || 0).toFixed(4)}, ${(d.z || 0).toFixed(4)}</span></div>
+                        <div class="mt-4 p-2 bg-amber-900/20 rounded border border-amber-700/30"><span class="text-xs text-amber-400">武器站固定部署，覆盖范围 ${d.range || 50}m</span></div>
+                    `;
+                } else {
+                    badge.className = 'entity-badge badge-target mb-2';
+                    badge.textContent = '高价值目标';
+                    title.className = 'text-lg font-bold text-red-400';
+                    title.textContent = entity.id;
+                    content.innerHTML = `
+                        <div class="flex justify-between p-2 bg-slate-800/50 rounded"><span class="text-slate-400">威胁等级</span><span class="font-mono text-red-300">${d.threatLevel || '中'}</span></div>
+                        <div class="flex justify-between p-2 bg-slate-800/50 rounded"><span class="text-slate-400">目标类型</span><span class="font-mono text-red-300">${d.targetType || '未知'}</span></div>
+                        <div class="flex justify-between p-2 bg-slate-800/50 rounded"><span class="text-slate-400">威胁范围</span><span class="font-mono text-red-300">${d.threatRange || 30}m</span></div>
+                        <div class="flex justify-between p-2 bg-slate-800/50 rounded"><span class="text-slate-400">坐标</span><span class="font-mono text-xs text-slate-300">${(d.x || 0).toFixed(4)}, ${(d.z || 0).toFixed(4)}</span></div>
+                        <div class="mt-4 p-2 bg-red-900/20 rounded border border-red-700/30"><span class="text-xs text-red-400">目标固定位置，需优先打击</span></div>
+                    `;
+                }
+            }
+
+            updateAltChart(entity) {
+                const ctx = document.getElementById('alt-chart')?.getContext('2d');
+                if (!ctx || !entity.trajectory) return;
+
+                const data = entity.trajectory.slice(-20).map(t => t.y);
+                const labels = data.map((_, i) => i);
+
+                if (this.altChart) this.altChart.destroy();
+
+                this.altChart = new Chart(ctx, {
+                    type: 'line',
+                    data: { labels, datasets: [{ data, borderColor: '#38bdf8', backgroundColor: 'rgba(56, 189, 248, 0.1)', borderWidth: 2, fill: true, tension: 0.4, pointRadius: 0 }] },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: { x: { display: false }, y: { display: true, grid: { color: 'rgba(148, 163, 184, 0.1)' }, ticks: { color: '#64748b', font: { size: 10 } } } }
+                    }
+                });
+            }
+
+            updateCounts() {
+                document.getElementById('drone-count').textContent = this.drones.size;
+                document.getElementById('weapon-count').textContent = this.weapons.size;
+                document.getElementById('target-count').textContent = this.targets.size;
+            }
+
+            // ==================== 控制功能 ====================
+            toggleTrajectories() {
+                this.showTrajectories = !this.showTrajectories;
+                this.drones.forEach(d => {
+                    if (d.trajectoryLine) d.trajectoryLine.visible = this.showTrajectories;
+                });
+            }
+
+            toggleRanges() {
+                this.showRanges = !this.showRanges;
+                [...this.weapons.values(), ...this.targets.values()].forEach(e => {
+                    if (e.rangeRing) e.rangeRing.visible = this.showRanges;
+                });
+            }
+
+            toggleTerrain() {
+                this.showTerrain = !this.showTerrain;
+                if (this.terrain) this.terrain.visible = this.showTerrain;
+                if (this.terrainWireframe) this.terrainWireframe.visible = this.showTerrain;
+            }
+
+            resetCamera() {
+                this.camera.position.set(100, 80, 100);
+                this.controls.target.set(0, 0, 0);
+                this.controls.update();
+            }
+
+            // ==================== 数据处理器 ====================
+            handleDroneData(data) {
+                const drones = Array.isArray(data) ? data : [data];
+                drones.forEach(d => { if (d.id) this.updateEntity(d, 'drone'); });
+                document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+                this.showNotification(`无人机数据更新`, `收到 ${drones.length} 架无人机状态`);
+            }
+
+            handleEntityData(data) {
+                const entities = Array.isArray(data) ? data : [data];
+                let counts = { drone: 0, weapon: 0, target: 0 };
+
+                entities.forEach(e => {
+                    if (!e.id) return;
+                    const type = e.entityType || (e.range ? 'weapon' : e.threatLevel ? 'target' : 'weapon');
+                    this.updateEntity(e, type);
+                    counts[type]++;
+                });
+
+                document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+                const parts = [];
+                if (counts.drone) parts.push(`${counts.drone}架无人机`);
+                if (counts.weapon) parts.push(`${counts.weapon}个武器站`);
+                if (counts.target) parts.push(`${counts.target}个目标`);
+                if (parts.length > 0) this.showNotification('实体数据更新', `收到: ${parts.join(', ')}`);
+            }
+
+            handleTerrainData(data) {
+                if (data.heights && Array.isArray(data.heights)) {
+                    this.initTerrain(data.heights);
+                    this.showNotification('地形数据已更新', `接收 ${data.heights.length} 个高度点`);
+                }
+            }
+
+            showNotification(title, msg) {
+                const toast = document.getElementById('notification-toast');
+                document.getElementById('toast-title').textContent = title;
+                document.getElementById('toast-msg').textContent = msg;
+                toast.classList.add('show');
+                setTimeout(() => toast.classList.remove('show'), 3000);
+            }
+
+            // ==================== 模拟数据 ====================
+            simulateData() {
+                this.setDataSource('sim');
+
+                const mockDrones = [
+                    { id: 'UAV-001', x: 20, z: 20, altitude: 25, speed: 12, battery: 85 },
+                    { id: 'UAV-002', x: -30, z: 15, altitude: 35, speed: 8, battery: 62 },
+                ];
+                this.handleDroneData(mockDrones);
+
+                const mockWeapons = [
+                    { id: 'WPN-001', x: -40, z: -40, altitude: 0, range: 60, ammo: 120, azimuth: 45, elevation: 15, entityType: 'weapon' },
+                ];
+
+                const mockTargets = [
+                    { id: 'TGT-001', x: 25, z: -35, altitude: 0, threatLevel: '高', targetType: '装甲车', threatRange: 40, entityType: 'target' },
+                ];
+
+                this.handleEntityData([...mockWeapons, ...mockTargets]);
+
+                if (!this.simulationInterval) {
+                    this.simulationInterval = setInterval(() => {
+                        this.drones.forEach((drone, id) => {
+                            const d = drone.data;
+                            const newData = {
+                                id,
+                                x: d.x,
+                                z: d.z,
+                                altitude: d.altitude,
+                                speed: Math.max(0, d.speed + (Math.random() - 0.5) * 2),
+                                battery: Math.max(0, d.battery - 0.1)
+                            };
+                            this.updateEntity(newData, 'drone');
+                        });
+
+                        this.weapons.forEach(weapon => {
+                            const radar = weapon.group.children.find(c => c.userData.isRadar);
+                            if (radar) radar.rotation.y += 0.02;
+                            const barrel = weapon.group.children.find(c => c.userData.isBarrel);
+                            if (barrel) barrel.rotation.y = Math.sin(Date.now() * 0.001) * 0.3;
+                        });
+                    }, 2000);
+                }
+            }
+
+            // ==================== 动画循环 ====================
+            animate() {
+                requestAnimationFrame(() => this.animate());
+                const time = Date.now() * 0.001;
+
+                this.drones.forEach(drone => {
+                    const group = drone.group;
+                    if (drone.targetPosition) group.position.lerp(drone.targetPosition, 0.05);
+
+                    group.children.forEach(child => {
+                        if (child.userData.isPropeller) child.rotation.y += child.userData.speed;
+                    });
+
+<!--                    group.position.y += Math.sin(time * 2 + drone.id.charCodeAt(4)) * 0.02;-->
+
+                    if (drone.trajectory && drone.trajectory.length >= 2) {
+                        const last = drone.trajectory[drone.trajectory.length - 1];
+                        const prev = drone.trajectory[drone.trajectory.length - 2];
+                        const angle = Math.atan2(last.x - prev.x, last.z - prev.z);
+                        group.rotation.y = angle;
+                    }
+                });
+
+
+                // ========== 实时从无人机JSON取坐标 → 画红色枪管瞄准线 ==========
+                this.weapons.forEach(weapon => {
+                    const wid = weapon.id;
+                    const wd = weapon.data;
+
+                    // 武器底部位置
+                    const start = new THREE.Vector3(wd.x, (wd.altitude || 0) + 3.5, wd.z);
+
+                    // ======================
+                    // 核心：取第一架无人机实时坐标（你JSON传过来的）
+                    // ======================
+                    let targetDrone = Array.from(this.drones.values())[0];
+                    if (!targetDrone) return;
+
+                    const dd = targetDrone.data;
+                    const end = new THREE.Vector3(dd.aimX, dd.aimY, dd.aimZ);
+
+                    console.log("end", end);
+
+                    // 创建线
+                    if (!this.weaponAimLines.has(wid)) {
+                        const line = this.createAimLine();
+                        this.world.add(line);
+                        this.weaponAimLines.set(wid, line);
+                    }
+
+                    // 更新两点位置
+                    const line = this.weaponAimLines.get(wid);
+                    const pos = new Float32Array([
+                        start.x, start.y, start.z,
+                        end.x, end.y, end.z
+                    ]);
+                    line.geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+                    line.geometry.attributes.position.needsUpdate = true;
+                });
+                this.targets.forEach(target => {
+                    if (target.targetPosition) target.group.position.lerp(target.targetPosition, 0.05);
+                });
+
+                this.targets.forEach(target => {
+                    const marker = target.group.children.find(c => c.userData.isMarker);
+                    if (marker) {
+                        const scale = 1 + Math.sin(time * 3) * 0.2;
+                        marker.scale.setScalar(scale);
+                    }
+                });
+
+                this.controls.update();
+                this.renderer.render(this.scene, this.camera);
+            }
+
+            onWindowResize() {
+                this.camera.aspect = window.innerWidth / window.innerHeight;
+                this.camera.updateProjectionMatrix();
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+
+            startClock() {
+                setInterval(() => {
+                    document.getElementById('clock').textContent = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+                }, 1000);
+            }
+        }
+
+        const app = new TacticalMonitorApp();
+    </script>
+</body>
+</html>
