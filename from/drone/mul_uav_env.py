@@ -16,6 +16,7 @@ from onpolicy.utils.util import compute_distance
 from onpolicy.envs.drone.uav_meta_info import TrainUAV
 from pathlib import Path
 from onpolicy.envs.drone.weapons.interfaces.environment_interface import EnvironmentInterface
+from onpolicy.utils.math_tool import fly_from_9_selections, angle_2_radian, normalize, cal_threat_level
 
 warnings.filterwarnings('ignore')
 logger = AppLogger().get_logger()
@@ -27,7 +28,6 @@ if not json_path.exists():
 
 
 class MultiUavEnv:
-
     def dump(self, reason):
         if self.is_debug and len(self.episode_data):
             with open(
@@ -60,7 +60,6 @@ class MultiUavEnv:
         self.max_available_height = cf.getfloat("constraints", "max_available_height")
         self.min_available_height = cf.getfloat("constraints", "min_available_height")
 
-        # 奖励参数
         self.decoy_safe_dis = cf.getfloat("reward", "decoy_safe_dis")
         self.uav_coll_penalty = cf.getfloat("reward", "uav_coll_penalty")
         self.step_penalty = cf.getfloat("reward", "step_penalty")
@@ -79,13 +78,10 @@ class MultiUavEnv:
 
         assert self.task_success_radius > self.uav_velocity_value
 
-        # 物理步长（与武器接口同步）
-        self.DT = 0.1  # 若配置文件有此参数，可从cf中读取
-
         # 课程学习参数
         self.curriculum_stage = 0
-        self.curriculum_thresholds = [1.0, 0.5, 0.3]  # 成功率阈值
-        self.curriculum_stage_rewards = [0.0, 5.0, 10.0]  # 阶段奖励加成
+        self.curriculum_thresholds = [1.0, 0.5, 0.3]
+        self.curriculum_stage_rewards = [0.0, 5.0, 10.0]
         self.stage_success_history = []
         self.current_stage_success_count = 0
         self.current_stage_episodes = 0
@@ -96,7 +92,7 @@ class MultiUavEnv:
         self.share_observation_space = []
         obs_dim = None
         for agent_id in range(self.n_total_uavs):
-            # 连续动作： [水平转向率, 垂直转向率, 油门]  值域 [-1,1]
+            # ===== 三维连续动作：控制 vx, vy, vz =====
             self.action_space.append(spaces.Box(low=-1.0, high=1.0, shape=(3,), dtype=np.float32))
             obs_dim = self.get_observation_size_of_a_uav()
             if self.is_share:
@@ -145,9 +141,8 @@ class MultiUavEnv:
         self.reward = None
         self.is_terminal = [False for _ in range(self.n_total_uavs)]
 
-        # 课程学习统计
-        self.curriculum_episode_count = 0
-        self.curriculum_success_count = 0
+        # ===== 物理步长 =====
+        self.DT = 0.1
 
         logger.info(
             f"PID-{os.getpid()}, 【{'训练' if self.mode == 'train' else '评估'}】环境（武器位置已知）初始化完成，"
@@ -174,7 +169,6 @@ class MultiUavEnv:
         return uav_x, uav_y, uav_z
 
     def reset(self):
-        """重置环境，支持课程学习动态调整任务难度"""
         self.target = [0, 0, 0]
         self.weapon = [0, 0, 0]
         self.raw_uavs = []
@@ -184,7 +178,7 @@ class MultiUavEnv:
         self.reward = None
         self.is_terminal = [False for _ in range(self.n_total_uavs)]
 
-        # 课程学习统计
+        # 课程学习
         if self.mode == "train":
             self.current_stage_episodes += 1
             if self.current_stage_episodes >= 20:
@@ -199,10 +193,8 @@ class MultiUavEnv:
                 self.current_stage_success_count = 0
                 self.current_stage_episodes = 0
 
-        # 根据课程阶段调整武器距离
         stage_scale = 1.0 - 0.2 * self.curriculum_stage
-        effective_weapon_dist = self.dis_target_weapon * stage_scale
-        effective_weapon_dist = max(effective_weapon_dist, 100.0)
+        effective_weapon_dist = max(self.dis_target_weapon * stage_scale, 100.0)
 
         self.target[0] = float(random.uniform(self.map.map_min_x + effective_weapon_dist,
                                               self.map.map_max_x - effective_weapon_dist))
@@ -264,36 +256,28 @@ class MultiUavEnv:
     def get_state_of_all_uav(self):
         return [self.get_observation_of_a_uav(i) for i in range(self.n_total_uavs)]
 
+    # ============================================================
+    # get_observation_of_a_uav（28维标准观测）
+    # ============================================================
     def get_observation_of_a_uav(self, uav_id):
-        """
-        28维观测向量（单智能体）
-        设计原则：不区分角色，通过 is_targeted 让网络自行区分
-        维度：
-        0:1   : 自身归一化坐标 (x, y)
-        2:3   : 自身速度方向 (vx, vy) 归一化到 [-1,1]
-        4:5   : 队友相对坐标 (dx, dy) 归一化
-        6     : 与武器距离 / 3000.0
-        7:8   : 武器炮口指向单位向量 (wx, wy)
-        9     : 炮口与你方向的夹角余弦 (1=正面, -1=背面)
-        10:11 : 最近威胁（子弹）相对坐标 (dx, dy)（暂未使用，留0）
-        12    : 与最近威胁距离 / 500.0
-        13    : 子弹预计到达时间 / 3.0
-        14    : 是否被瞄准 (is_targeted)  0/1
-        15    : 武器状态码 (0=NORMAL,1=TUNING,2=CAPTURE,3=FIRE) / 3.0
-        16:27 : 预留（可放高度、地形等）
-        """
         uav = self.raw_uavs[uav_id]
-        pos = np.array(uav.position[:2])
-        vel = np.array(uav.velocity[:2])
+        pos = np.array(uav.position[:2])  # 水平位置（高度在预留位）
+        vel = np.array(uav.velocity[:2])  # 水平速度
+
         speed = np.linalg.norm(vel)
-        vel_norm = vel / speed if speed > 0 else np.array([0.0, 0.0])
+        if speed > 0:
+            vel_norm = vel / speed
+        else:
+            vel_norm = np.array([0.0, 0.0])
 
         weapon_pos = np.array(self.weapon[:2])
-        # TODO: 替换为 EnvironmentInterface.get_weapon_forward()
-        weapon_forward = np.array([1.0, 0.0])  # 临时写死，后续替换
+
+        # ===== 临时：获取炮口朝向（替换为真实接口） =====
+        weapon_forward = np.array([1.0, 0.0])
 
         rel_weapon = weapon_pos - pos
         dist_to_weapon = np.linalg.norm(rel_weapon)
+
         if dist_to_weapon > 0:
             to_weapon = rel_weapon / dist_to_weapon
             angle_cos = np.dot(weapon_forward, to_weapon)
@@ -303,7 +287,6 @@ class MultiUavEnv:
         target_idx = self._get_game_target_idx()
         is_targeted = 1.0 if target_idx == uav_id else 0.0
 
-        # 武器状态码
         try:
             raw_state = EnvironmentInterface.get_weapon_state()
             state_map = {0: 0, 1: 1, 2: 2, 3: 3}
@@ -311,31 +294,33 @@ class MultiUavEnv:
         except:
             weapon_state = 0
 
-        # 队友相对坐标
         mate_pos = np.array([0.0, 0.0])
         for i in range(self.n_total_uavs):
             if i != uav_id and self.raw_uavs[i].status == UAVState.ALIVE:
                 mate_pos = np.array(self.raw_uavs[i].position[:2]) - pos
                 break
 
-        # 子弹威胁（占位）
         bullet_rel = np.array([0.0, 0.0])
         bullet_dist = 0.0
         bullet_timer = 0.0
 
+        # 高度信息（简化为单一值）
+        height_ratio = (uav.position[2] - self.min_available_height) / (self.max_available_height - self.min_available_height)
+
         obs = []
-        obs.extend(pos / self.map.map_max_x)           # 0:1
-        obs.extend(vel_norm)                           # 2:3
-        obs.extend(mate_pos / self.map.map_max_x)      # 4:5
-        obs.append(dist_to_weapon / 3000.0)            # 6
-        obs.extend(weapon_forward)                     # 7:8
-        obs.append(angle_cos)                          # 9
-        obs.extend(bullet_rel / self.map.map_max_x)    # 10:11
-        obs.append(bullet_dist / 500.0)                # 12
-        obs.append(bullet_timer / 3.0)                 # 13
-        obs.append(is_targeted)                        # 14
-        obs.append(weapon_state / 3.0)                 # 15
-        obs.extend([0.0] * 12)                         # 16:27
+        obs.extend(pos / self.map.map_max_x)
+        obs.extend(vel_norm)
+        obs.extend(mate_pos / self.map.map_max_x)
+        obs.append(dist_to_weapon / 3000.0)
+        obs.extend(weapon_forward)
+        obs.append(angle_cos)
+        obs.extend(bullet_rel / self.map.map_max_x)
+        obs.append(bullet_dist / 500.0)
+        obs.append(bullet_timer / 3.0)
+        obs.append(is_targeted)
+        obs.append(weapon_state / 3.0)
+        obs.append(height_ratio)  # 把高度放进来
+        obs.extend([0.0] * 11)
 
         return np.array(obs, dtype=np.float32)
 
@@ -348,73 +333,58 @@ class MultiUavEnv:
                 return i
         return None
 
+    # ============================================================
+    # 核心改动：step 中的物理执行（3D速度控制）
+    # ============================================================
     def step(self, action):
-        """
-        action: list of numpy arrays, each shape (3,)
-        """
-        # 将连续动作应用到每架无人机
+        # action 是 list of np.array，每个 shape=(3,)
+        actions = action
+
+        last_state = copy.deepcopy(self.raw_uavs)
+        last_target = self._get_game_target_idx()
+        lat_stat = EnvironmentInterface.get_weapon_state() if self.is_use_weapon else 0
+
         for idx in range(self.n_total_uavs):
             if self.raw_uavs[idx].status != UAVState.ALIVE:
                 continue
 
-            act = action[idx]  # shape (3,)
-            yaw_rate = act[0] * 0.8      # 最大水平转向率 0.8 rad/s
-            pitch_rate = act[1] * 0.5    # 最大俯仰转向率 0.5 rad/s
-            throttle = (act[2] + 1.0) / 2.0
-            throttle = max(0.3, min(1.0, throttle))  # 限制油门范围
+            # ===== 三维连续动作：直接控制 vx, vy, vz =====
+            act = actions[idx]  # shape: (3,)，值域 [-1, 1]
+            # 映射为实际速度
+            vx = act[0] * self.uav_velocity_value
+            vy = act[1] * self.uav_velocity_value
+            vz = act[2] * self.uav_velocity_value
 
-            vel = np.array(self.raw_uavs[idx].velocity)
-            current_speed = np.linalg.norm(vel)
-            if current_speed < 1e-6:
-                forward = np.array([1.0, 0.0, 0.0])
-            else:
-                forward = vel / current_speed
+            # ===== 更新位置（三个轴同时更新） =====
+            current_pos = np.array(self.raw_uavs[idx].position)
+            new_position = current_pos + np.array([vx, vy, vz]) * self.DT
 
-            right = np.array(self.right_vector[idx])
-            up = np.cross(forward, right)
-            up_norm = np.linalg.norm(up)
-            if up_norm < 1e-8:
-                up = np.array([0.0, 0.0, 1.0])
-            else:
-                up = up / up_norm
+            # ===== 边界约束（防止飞出地图或撞地） =====
+            # 水平边界
+            new_position[0] = np.clip(new_position[0], self.map.map_min_x, self.map.map_max_x)
+            new_position[1] = np.clip(new_position[1], self.map.map_min_y, self.map.map_max_y)
+            # 高度边界
+            terrain_height = self.map.search_nh(new_position[0], new_position[1])
+            min_alt = terrain_height + self.coll_safe_dis
+            new_position[2] = np.clip(new_position[2], min_alt, self.max_available_height)
 
-            # 偏航旋转（绕 Up 轴）
-            if np.linalg.norm(up) > 0:
-                cos_y = np.cos(yaw_rate * self.DT)
-                sin_y = np.sin(yaw_rate * self.DT)
-                forward = forward * cos_y + np.cross(up, forward) * sin_y
-                right = np.cross(up, forward)
-                right_norm = np.linalg.norm(right)
-                if right_norm > 0:
-                    right = right / right_norm
+            # ===== 更新速度向量 =====
+            new_velocity = np.array([vx, vy, vz])
 
-            # 俯仰旋转（绕 Right 轴）
-            if np.linalg.norm(right) > 0:
-                cos_p = np.cos(pitch_rate * self.DT)
-                sin_p = np.sin(pitch_rate * self.DT)
-                forward = forward * cos_p + np.cross(right, forward) * sin_p
-
-            forward = forward / (np.linalg.norm(forward) + 1e-8)
-            new_speed = throttle * self.uav_velocity_value
-            new_velocity = forward * new_speed
-            new_position = np.array(self.raw_uavs[idx].position) + new_velocity * self.DT
-
-            # 更新右向量（确保与 forward 和 up 正交）
-            new_right = np.cross(forward, up)
-            new_right_norm = np.linalg.norm(new_right)
-            if new_right_norm > 0:
-                new_right = new_right / new_right_norm
-            else:
-                new_right = np.array([1.0, 0.0, 0.0])
-            self.right_vector[idx] = new_right.tolist()
-
-            # 写入 UAV 状态
+            # ===== 写入 UAV 状态 =====
             self.raw_uavs[idx].set_position(*new_position.tolist())
             self.raw_uavs[idx].set_velocity(*new_velocity.tolist())
 
+            # ===== 更新 right_vector（用于可视化/调试） =====
+            if abs(vx) > 1e-6 or abs(vy) > 1e-6:
+                forward = np.array([vx, vy, 0])
+                forward = forward / (np.linalg.norm(forward) + 1e-8)
+                right = np.array([-forward[1], forward[0], 0])
+                self.right_vector[idx] = right.tolist()
+
         self._episode_steps += 1
 
-        # 武器接口更新
+        # ---- 武器接口调用 ----
         if self.is_use_weapon:
             position = [self.raw_uavs[u].position for u in range(self.n_total_uavs)]
             velocity = [self.raw_uavs[u].velocity for u in range(self.n_total_uavs)]
@@ -423,8 +393,7 @@ class MultiUavEnv:
                 if game_uav_list[u] is None:
                     self.raw_uavs[u].status = UAVState.DESTROYED
 
-        # 计算奖励
-        self.set_reward()
+        self.set_reward(last_state, actions, last_target, lat_stat)
 
         ret_reward = [[x] for x in self.reward]
         return self.get_state_of_all_uav(), ret_reward, self.is_terminal, {i: {'individual_reward': self.reward[i]} for
@@ -443,13 +412,16 @@ class MultiUavEnv:
                      "curriculum_stage": self.curriculum_stage}
         self.episode_data.append(data_save)
 
-    def set_reward(self):
+    # ============================================================
+    # set_reward（分离+共享奖励，含摸鱼/自杀惩罚）
+    # ============================================================
+    def set_reward(self, last_p, action, last_target, lat_stat):
         current_p = self.raw_uavs
         rewards = [0.0 for _ in range(self.n_total_uavs)]
         self.r_msg = ['' for _ in range(self.n_total_uavs)]
         self.degree = [None for _ in range(self.n_total_uavs)]
 
-        # ============ 全局共享奖励（循环外计算） ============
+        # ===== 1. 全局共享奖励 =====
         r_shared_formation = 0.0
         if self.n_total_uavs >= 2:
             alive_positions = []
@@ -476,7 +448,7 @@ class MultiUavEnv:
                     self.dump("任务完成！")
                     break
 
-        # ============ 个体分离奖励（循环内计算） ============
+        # ===== 2. 个体分离奖励 =====
         for idx in range(self.n_total_uavs):
             uav = current_p[idx]
             if uav.status != UAVState.ALIVE:
@@ -493,13 +465,13 @@ class MultiUavEnv:
 
             r_bait = 0.0
             if is_targeted:
-                # 诱饵：保持在 1600~1900m 安全边界
+                # 诱饵：安全边界奖励
                 if 1600 < dist_to_weapon < 1900:
                     r_bait = 0.02
                 else:
                     r_bait = -0.02 * (abs(dist_to_weapon - 1750) / 200)
 
-                # 站桩惩罚：切向速度太小
+                # 站桩惩罚（水平切向速度太小）
                 vel = np.array(uav.velocity[:2])
                 if np.linalg.norm(vel) > 0:
                     to_weapon = (np.array(self.weapon[:2]) - np.array(uav.position[:2]))
@@ -511,19 +483,16 @@ class MultiUavEnv:
                             r_bait -= 0.02
                 self.r_msg[idx] += f'诱饵(dist={dist_to_weapon:.0f}), '
             else:
-                # 刺客：靠近武器有奖
-                # 这里需要上一帧距离，但为了简洁，我们直接用当前距离变化（需要保存上一帧，这里略，可改进）
-                # 简单版本：距离越近奖励越高
-                r_bait = 0.02 * (2000 - dist_to_weapon) / 2000
+                # 刺客：靠近奖励
+                last_dist = compute_distance(self.weapon, last_p[idx].position) if last_p else dist_to_weapon
+                r_bait = 0.02 * (last_dist - dist_to_weapon) / self.uav_velocity_value
                 r_bait = np.clip(r_bait, -0.05, 0.05)
 
-                # 摸鱼惩罚：队友被锁，你却在远处看戏
                 if target_idx is not None and target_idx != idx and dist_to_weapon > 1800:
                     r_bait -= 0.1
                     self.r_msg[idx] += '摸鱼惩罚, '
                 self.r_msg[idx] += f'刺客(dist={dist_to_weapon:.0f}), '
 
-            # 自杀惩罚：冲进1500m
             r_suicide = 0.0
             if dist_to_weapon < 1500:
                 r_suicide = -0.5
@@ -532,14 +501,13 @@ class MultiUavEnv:
             rewards[idx] = r_step + r_bait + r_suicide
             rewards[idx] += r_shared_formation + r_task_success
             rewards[idx] = np.clip(rewards[idx], -2.0, 2.0)
-
             self.r_msg[idx] += f'reward={rewards[idx]:.2f}'
 
         self.reward = rewards
 
-        # ============ 终局判定 ============
+        # ===== 3. 终局判定 =====
         if r_task_success > 0:
-            self.append_data(action if hasattr(self, 'action') else [-1]*self.n_total_uavs)
+            self.append_data(action)
             msg = "任务完成！"
             self.dump(msg)
             green_str = _green_log_str(msg)
@@ -548,7 +516,7 @@ class MultiUavEnv:
             return
 
         if all(self.is_terminal):
-            self.append_data(action if hasattr(self, 'action') else [-1]*self.n_total_uavs)
+            self.append_data(action)
             msg = "都被击毁！"
             self.dump(msg)
             logger.info(f"PID-{os.getpid()}, mode-{self.mode}, episode-{self.n_episode} {msg}")
@@ -561,11 +529,11 @@ class MultiUavEnv:
             self.n_episode += 1
             self.is_terminal = [True for _ in range(self.n_total_uavs)]
             logger.info(f"PID-{os.getpid()}, mode-{self.mode}, episode-{self.n_episode} [terminated]：超出最大限制")
-            self.append_data(action if hasattr(self, 'action') else [-1]*self.n_total_uavs)
+            self.append_data(action)
             self.dump("超出最大限制")
             return
 
-        self.append_data(action if hasattr(self, 'action') else [-1]*self.n_total_uavs)
+        self.append_data(action)
 
     def compute_init_velocity(self):
         speed = self.uav_velocity_value
@@ -574,13 +542,17 @@ class MultiUavEnv:
         dx = math.cos(pitch) * math.cos(yaw)
         dy = math.cos(pitch) * math.sin(yaw)
         dz = math.sin(pitch)
-        return [dx * speed, dy * speed, dz * speed]
+        init_vel = [dx * speed, dy * speed, dz * speed]
+        return init_vel
 
     def seed(self, seed_num=None):
         pass
 
     def get_observation_size_of_a_uav(self):
-        return 28
+        if self.is_use_weapon:
+            return 28
+        else:
+            return 3 + 3 + 3 + 3 + 3
 
     def close(self):
         pass
