@@ -1,5 +1,6 @@
 from onpolicy.envs.drone.weapons.entries.phalanx.components.rader import *
 from onpolicy.utils.util import compute_distance
+import math
 
 
 class TrackRader(Rader):
@@ -10,7 +11,6 @@ class TrackRader(Rader):
         self.fire_distance = self.config.fire_distance
         self.minimum_fire_distance = self.config.minimum_fire_distance
         self.minimum_track_distance = self.config.minimum_track_distance
-        # TODO://速度需要修改，这个5是速度常量
         GameConfig.THREAT_LEVEL_THRESHOLD = 0
 
         # 舷基座的位置，相对于绝对坐标
@@ -19,7 +19,7 @@ class TrackRader(Rader):
         temp[0] += 1
         self.top_project_position = temp
         self.top_angle_with_xoy = 0
-        # self.top_angle_with_xoy 为角度，且为与水平面夹脚，上为正方向
+        # self.top_angle_with_xoy 为角度，且为与水平面夹角，上为正方向
         self.rotate_angular_velocity = self.config.rotate_angular_velocity
         self.rotate_angular_acceleration = self.config.rotate_angular_acceleration
         self.need_adjust_board_time = 0
@@ -27,68 +27,105 @@ class TrackRader(Rader):
         self.end_position = 0
 
         self.current_target = None
-        # 度/秒，单位度
-        # 舷头此时的位置，相对于绝对坐标系
         self.capture_time = 0
         self.search_rader = None
 
+        # ===== 新增：记录上一次的目标位置，用于计算调弦是否追上 =====
+        self.last_target_position = None
+        self.tuning_start_position = None  # 调弦开始时炮口位置
+
     def _cal_time(self, theta):
-        '''
-        Todo: theta为度
-        '''
-        t1 = 2 * sqrt(theta / self.rotate_angular_acceleration)
+        """
+        计算调弦所需时间
+        :param theta: 需要转动的角度（度）
+        """
+        t1 = 2 * math.sqrt(theta / self.rotate_angular_acceleration)
         t2 = theta / self.rotate_angular_velocity + self.rotate_angular_velocity / self.rotate_angular_acceleration
         return min(t2, t1)
 
+    # ================================================================
+    # 核心改动：calculate_adjust_data 支持持续追踪
+    # ================================================================
+    def calculate_adjust_data(self, dynamic_target_position=None):
+        """
+        计算调弦数据——每次调用时使用目标的最新位置
+        :param dynamic_target_position: 目标当前位置（如果为None则使用current_target.position）
+        """
+        if self.current_target is None and dynamic_target_position is None:
+            logger.warning("调弦计算时，目标不存在")
+            return
+
+        # 1. 获取目标最新位置
+        if dynamic_target_position is not None:
+            target_pos = dynamic_target_position
+        else:
+            target_pos = self.current_target.position
+
+        # 2. 计算目标在武器高度上的水平投影点
+        uav_projection_point = [target_pos[0], target_pos[1], self.position[2]]
+        uav_weapon_vector = subtraction_of_2_vector(uav_projection_point, self.position)
+
+        # 3. 当前炮口指向方向
+        current_direction = subtraction_of_2_vector(self.top_project_position, self.position)
+        current_direction_norm = np.linalg.norm(current_direction)
+        if current_direction_norm < 1e-8:
+            current_direction = np.array([1.0, 0.0, 0.0])  # 默认指向X轴
+        else:
+            current_direction = current_direction / current_direction_norm
+
+        # 4. 目标方向（单位向量）
+        target_direction = uav_weapon_vector / (np.linalg.norm(uav_weapon_vector) + 1e-8)
+
+        # 5. 计算水平方向需要转动的角度
+        will_rotate_angle = cal_angle_of_2_vector(current_direction.tolist(), target_direction.tolist())
+
+        # 6. 计算调弦时间
+        horizontal_time = self._cal_time(will_rotate_angle)
+
+        # 7. 垂直方向角度（俯仰）
+        small = distance_of_2_point(self.position, uav_projection_point)
+        large = distance_of_2_point(self.position, target_pos)
+        if large > 0:
+            uav_theta = radian_2_angle(math.acos(small / large))
+        else:
+            uav_theta = 0
+        end_theta = abs(uav_theta) if target_pos[2] >= self.position[2] else -abs(uav_theta)
+        vertical_time = self._cal_time(abs(self.top_angle_with_xoy - end_theta))
+
+        # 8. 取水平/垂直的最大时间
+        adjust_time = max(horizontal_time, vertical_time)
+
+        # 9. 更新目标位置（调弦结束后炮口应该指向的位置）
+        self.end_position = add_of_2_vector(self.position, target_direction.tolist())
+        self.end_theta = end_theta
+
+        # 10. 更新调弦计时器（如果当前调弦时间比新计算的时间短，则延长）
+        #    这是关键——当目标移动时，调弦时间会动态延长！
+        if adjust_time > self.need_adjust_board_time:
+            self.need_adjust_board_time = adjust_time
+
+        # 记录目标位置，用于判断目标是否在移动
+        self.last_target_position = target_pos
+
+        logger.info(f"调弦计算：水平角={will_rotate_angle:.2f}°, 时间={horizontal_time:.2f}s, "
+                    f"俯仰角={end_theta:.2f}°, 总调弦时间={adjust_time:.2f}s")
+
     def adjust_end_set_value(self):
-        logger.info("调弦结束，赋值", is_in_file=False)
+        """调弦结束，更新炮口位置"""
+        logger.info("调弦结束，更新炮口位置", is_in_file=False)
         self.top_project_position = self.end_position
         self.top_angle_with_xoy = self.end_theta
         self.need_adjust_board_time = 0
-
-    def calculate_adjust_data(self):
-        '''
-        TODO:Test
-        '''
-        horizontal_board_projection_vector = subtraction_of_2_vector(self.top_project_position, self.position)
-        uav_position = self.current_target.position
-        uav_projection_point = [uav_position[0], uav_position[1], self.position[2]]
-        uav_weapon_vector = subtraction_of_2_vector(uav_projection_point, self.position)
-
-        self.end_position = add_of_2_vector(self.position, normalize(uav_weapon_vector))
-
-        will_rotate_angle = cal_angle_of_2_vector(horizontal_board_projection_vector, uav_weapon_vector)
-        horizontal_time = self._cal_time(will_rotate_angle)
-
-        small = distance_of_2_point(self.position, uav_projection_point)
-        large = distance_of_2_point(self.position, uav_position)
-        uav_theta = radian_2_angle(acos_(small / large))
-        self.end_theta = abs(uav_theta) if uav_position[2] >= self.position[2] else -abs(uav_theta)
-        vertical_time = self._cal_time(abs(self.top_angle_with_xoy - self.end_theta))
-
-        adjust_time = max(horizontal_time, vertical_time)
-        logger.info("计算一次调弦时间：{}".format(adjust_time))
-        self.need_adjust_board_time = adjust_time
-
-    def build_dict(self):
-        return self.config.build_dict()
+        self.tuning_start_position = None
 
     def set_search_rader(self, search_rader):
         self.search_rader = search_rader
 
     def get_current_target(self):
-        '''
-        当前目标必须不为空才调用这个方法
-        :return:
-        '''
         assert self.current_target is not None, "current target is None"
         return self.current_target
 
     def try_get_current_target(self):
-        '''
-        当前目标可以为空就调用这个方法
-        :return:
-        '''
         return self.current_target
 
     def check_can_fire(self):
@@ -96,7 +133,6 @@ class TrackRader(Rader):
         if can_fire:
             logger.info("可以进入开火状态，捕获时间为：" + str(self.capture_time))
             self.capture_time = 0
-
         return can_fire
 
     def step_capture(self):
@@ -110,13 +146,9 @@ class TrackRader(Rader):
         return self.current_target is not None
 
     def remove_target(self, weapon):
-        '''
-        雷达的目标移除
-        :return:
-        '''
+        """移除目标，清空相关子弹"""
         if self.current_target is None:
             logger.info("移除目标时，当前目标不存在")
-            assert False
             return
         self.current_target.reset_attacked_state()
         contain_list = []
@@ -126,77 +158,83 @@ class TrackRader(Rader):
                 contain_list.append(bullet)
         weapon.fired_bullet_list = contain_list
         logger.info(
-            f"没有目标了就移除子弹，子弹不会执行step_attack_a_target_and_is_kill方法，移除前有子弹 {n}, 移除后 {len(weapon.fired_bullet_list)}")
+            f"移除目标，移除前子弹数 {n}, 移除后 {len(weapon.fired_bullet_list)}")
         self.current_target = None
+        self.last_target_position = None
+        self.tuning_start_position = None
 
     def confirm_track_target(self, search_rader, uav_list, get_uav_index_fun):
-        '''
-        :param search_rader:
-        :param uav_list:
-        :return:
-        '''
-        # 计算威胁级别和判定范围
+        """确认跟踪目标"""
         threat_level_uav_list = self._adjust_board_prepare(search_rader, uav_list, get_uav_index_fun)
         if 0 == len(threat_level_uav_list):
             logger.info("没有搜索到或者没有在跟踪范围内")
             return None
         else:
             logger.info("搜索到或者在跟踪范围内")
-        # （ entry[0]: 威胁程度，entry[1]: 对应无人机）
+
         max_threat_level = threat_level_uav_list[0][0]
         self.current_target = threat_level_uav_list[0][1]
         threat_level_string = ["威胁程度：" + str(entry[0]) + ", 对应无人机id：" + get_uav_index_fun(entry[1]) + "; " for
-                               entry in
-                               threat_level_uav_list]
+                               entry in threat_level_uav_list]
         logger.info("威胁程度概述：" + str(threat_level_string), is_in_file=False)
+
         for entry in threat_level_uav_list:
-            # is_block = self.map.judge_mountain(*self.position, *entry[1].position, 0, 'block')
             is_in = self.search_rader.is_a_uav_in_search_range(entry[1])
-            # if is_block:
-            #     logger.info(f"当前无人机因为被山遮挡从而没有被锁定")
             if max_threat_level < entry[0] and is_in:
                 max_threat_level = entry[0]
                 self.current_target = entry[1]
-        if True:
-            logger.info("找到了最大威胁程度大于阈值 " + str(
 
-                GameConfig.THREAT_LEVEL_THRESHOLD) + "的无人机：" + self.current_target.print_self())
+        if max_threat_level >= GameConfig.THREAT_LEVEL_THRESHOLD:
+            logger.info("找到了最大威胁程度大于阈值 " + str(GameConfig.THREAT_LEVEL_THRESHOLD) +
+                        "的无人机：" + self.current_target.print_self())
             assert self.current_target is not None, "_handle_equal_condition function exception"
         else:
             logger.info("没有找到，因为最大威胁程度小于阈值 " + str(GameConfig.THREAT_LEVEL_THRESHOLD))
             self.current_target = None
 
-        for uav in threat_level_uav_list:
-            logger.info(f"当前无人机和雷达距离  {compute_distance(uav[1].position, self.position)}")
-        logger.info(f"选中的目标的距离为 {compute_distance(self.current_target.position, self.position)}")
+        # ===== 锁定目标时，立即计算调弦数据 =====
+        if self.current_target is not None:
+            self.tuning_start_position = self.top_project_position.copy()
+            self.calculate_adjust_data(self.current_target.position)
+
         return self.current_target
 
+    # ================================================================
+    # 核心改动：adjust_board 每步都用目标最新位置重新计算
+    # ================================================================
     def adjust_board(self, fun):
-        '''
-        调整角度
-        :return: True代表调舷成功
-        '''
+        """
+        调弦过程：每步更新目标位置，直到炮口追上
+        :param fun: 获取无人机ID的函数（用于日志）
+        :return: True 表示调弦完成
+        """
+        if self.current_target is None:
+            return True
+
+        # ===== 关键：每步用目标当前位置重新计算调弦 =====
+        self.calculate_adjust_data(self.current_target.position)
+
+        # 调弦时间减少
         self._step_adjust_board_one_time()
+
         end = self.need_adjust_board_time <= 0
         if end:
             self.adjust_end_set_value()
+            logger.info(f"调弦完成，炮口对准目标 {fun(self.current_target)}")
             return True
+
+        logger.info(f"调弦中，剩余时间 {self.need_adjust_board_time:.2f}s")
         return False
 
     def _step_adjust_board_one_time(self):
-        '''
-        time--
-        :return:
-        '''
-
+        """调弦步进，时间减少一个单位"""
         self.need_adjust_board_time -= UNIT_TIME
 
     def _adjust_board_prepare(self, search_rader, uav_list, fun):
-        '''
-        :param search_rader:
-        :return: 返回元组列表，元组内容为（威胁程度，对应无人机），返回为空代表没有搜索到或者在追踪范围之外
-        '''
-        # 检测是否有飞机进入追踪范围，然后确定并输出追踪目标
+        """
+        准备调弦数据：获取所有在跟踪范围内且标记>=3次的无人机
+        :return: 返回元组列表，元组内容为（威胁程度，对应无人机）
+        """
         uav_to_track_list = search_rader.get_mark_3_time_uav_list(uav_list)
         uav_to_track_list = [a_uav for a_uav in uav_to_track_list if self._is_a_uav_in_track_range(a_uav, fun)]
         threat_level_uav_list = [(self._cal_threat_level(a_uav), a_uav) for a_uav in uav_to_track_list]
@@ -205,9 +243,8 @@ class TrackRader(Rader):
     def _is_a_uav_in_track_range(self, a_uav, fun):
         logger.info(
             "最小跟踪距离为：" + str(self.minimum_track_distance) + "，跟踪最远距离为：" + str(
-                self.track_distance) + "，密集阵与id为" + fun(a_uav) + "的无人机的距离：" + str(
-                distance_of_2_point(self.position,
-                                    a_uav.position)), is_in_file=False)
+                self.track_distance) + "，与id为" + fun(a_uav) + "的无人机的距离：" + str(
+                distance_of_2_point(self.position, a_uav.position)), is_in_file=False)
         return is_a_point_in_a_sphere(self.track_distance, self.position, a_uav.position) and is_a_point_out_a_sphere(
             self.minimum_track_distance, self.position, a_uav.position)
 
@@ -215,41 +252,28 @@ class TrackRader(Rader):
         assert self.current_target is not None, "current target is None"
         logger.info(
             "最小跟踪距离为：" + str(self.minimum_track_distance) + "，跟踪最远距离为：" + str(
-                self.track_distance) + "，密集阵与id为" + fun(self.current_target) + "的无人机的距离：" + str(
-                distance_of_2_point(self.position,
-                                    self.current_target.position)), is_in_file=False)
+                self.track_distance) + "，与id为" + fun(self.current_target) + "的无人机的距离：" + str(
+                distance_of_2_point(self.position, self.current_target.position)), is_in_file=False)
         return is_a_point_in_a_sphere(self.track_distance, self.position,
                                       self.current_target.position) and is_a_point_out_a_sphere(
             self.minimum_track_distance, self.position, self.current_target.position)
 
     def is_target_can_use_because_no_mountain(self):
         assert self.current_target is not None, "current target is None"
-        # is_block = self.map.judge_mountain(*self.position, *self.current_target.position, 0, 'block')
-        # if is_block:
-        #     logger.info(f"密集阵与id为{self.current_target.id}的无人机之间有障碍物，无法使用")
         is_in = self.search_rader.is_a_uav_in_search_range(self.current_target)
         return is_in
 
     def is_target_in_fire_range(self):
         assert self.current_target is not None, "current target is None"
         logger.info("最小开火距离为：" + str(self.minimum_fire_distance) + "，开火最远距离为：" + str(
-            self.fire_distance) + "，密集阵与id为" + self.current_target.get_id() + "无人机的距离：" + str(
-            distance_of_2_point(self.position,
-                                self.current_target.position)))
+            self.fire_distance) + "，与id为" + self.current_target.get_id() + "无人机的距离：" + str(
+            distance_of_2_point(self.position, self.current_target.position)))
         return is_a_point_in_a_sphere(self.fire_distance, self.position,
                                       self.current_target.position) and is_a_point_out_a_sphere(
             self.minimum_fire_distance, self.position, self.current_target.position)
 
     def _cal_threat_level(self, single_uav):
-        from numpy import Inf
-        '''
-        :param single_uav:
-        :return: 计算威胁程度
-        '''
         return cal_threat_level(self.position, single_uav.velocity, single_uav.velocity_direction, single_uav.position)
 
     def _cal_projection_velocity(self, single_uav):
-        '''
-        :return: 计算投影速度
-        '''
         return cal_projection_velocity(single_uav, self.position)
