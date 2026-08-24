@@ -27,18 +27,6 @@ if not json_path.exists():
 
 
 class MultiUavEnv:
-    # 九方向动作（保留，以备他用，但训练不再使用）
-    ACTION_SET = [
-        (angle_2_radian(10), angle_2_radian(-10)),
-        (angle_2_radian(10), angle_2_radian(0)),
-        (angle_2_radian(10), angle_2_radian(10)),
-        (angle_2_radian(0), angle_2_radian(-10)),
-        (angle_2_radian(0), angle_2_radian(0)),
-        (angle_2_radian(0), angle_2_radian(10)),
-        (angle_2_radian(-10), angle_2_radian(-10)),
-        (angle_2_radian(-10), angle_2_radian(0)),
-        (angle_2_radian(-10), angle_2_radian(10)),
-    ]
 
     def dump(self, reason):
         if self.is_debug and len(self.episode_data):
