@@ -6,9 +6,18 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.distributions import Normal
 from collections import deque
+import gymnasium as gym
 
-# 导入你的环境与配置
-from env import MicroBattleEnv, Config, Plot
+# ==========================================
+# 修改：导入你自己的环境
+# ==========================================
+# 假设你的 MultiUavEnv 在 onpolicy.envs.drone 包下
+# 根据你的实际路径修改这行
+from onpolicy.envs.drone.multi_uav_env import MultiUavEnv
+from onpolicy.envs.drone.utils.config_loader import load_config  # 如果你有配置加载器
+
+
+# 或者直接传入 cf 对象
 
 
 # ==========================================
@@ -16,29 +25,28 @@ from env import MicroBattleEnv, Config, Plot
 # ==========================================
 class PPOArgs:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    total_timesteps = 2_000_000  # 总训练步数
+    total_timesteps = 2_000_000
     num_envs = 1
-    num_steps = 2048  # 每次更新前收集的步数
-    batch_size = 256  # 更新时的 Batch Size
-    n_epochs = 10  # 每次收集后，网络优化的轮数
+    num_steps = 2048
+    batch_size = 256
+    n_epochs = 10
 
-    lr = 3e-4  # 初始学习率
-    gamma = 0.99  # 折扣因子
-    gae_lambda = 0.95  # GAE 参数
-    clip_coef = 0.2  # PPO 截断范围
-    ent_coef = 0.01  # 熵奖励系数 (鼓励探索)
-    vf_coef = 0.5  # 价值函数损失系数
-    max_grad_norm = 0.5  # 梯度裁剪阈值-
+    lr = 3e-4
+    gamma = 0.99
+    gae_lambda = 0.95
+    clip_coef = 0.2
+    ent_coef = 0.01
+    vf_coef = 0.5
+    max_grad_norm = 0.5
 
-    save_interval = 500_000  # 每隔多少步保存一次模型
-    log_interval = 50  # 每隔多少个 Episode 打印一次日志
+    save_interval = 500_000
+    log_interval = 50
 
 
 # ==========================================
-# 2. 神经网络结构定义
+# 2. 神经网络结构（保持不变）
 # ==========================================
 def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
-    """正交初始化权重"""
     torch.nn.init.orthogonal_(layer.weight, std)
     torch.nn.init.constant_(layer.bias, bias_const)
     return layer
@@ -47,19 +55,17 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
 class Actor(nn.Module):
     def __init__(self, obs_dim, action_dim):
         super().__init__()
-        # 纯 MLP 结构，轻量且极易导出为 ONNX 部署
         self.net = nn.Sequential(
             layer_init(nn.Linear(obs_dim, 256)),
             nn.Tanh(),
             layer_init(nn.Linear(256, 256)),
             nn.Tanh(),
-            layer_init(nn.Linear(256, action_dim), std=0.01)  # 最后一层 std 设小，防止初始动作过大
+            layer_init(nn.Linear(256, action_dim), std=0.01)
         )
-        # 独立的可学习标准差参数，初始化为 0 (即 exp(0)=1)
         self.actor_logstd = nn.Parameter(torch.zeros(1, action_dim))
 
     def forward(self, x):
-        action_mean = torch.tanh(self.net(x))  # 将均值限制在 [-1, 1]
+        action_mean = torch.tanh(self.net(x))
         action_logstd = self.actor_logstd.expand_as(action_mean)
         action_std = torch.exp(action_logstd)
         probs = Normal(action_mean, action_std)
@@ -82,7 +88,7 @@ class Critic(nn.Module):
 
 
 # ==========================================
-# 3. 经验回放池 (Rollout Buffer)
+# 3. 经验回放池 (Rollout Buffer) - 适配你的环境
 # ==========================================
 class RolloutBuffer:
     def __init__(self, num_steps, num_agents, obs_dim, global_state_dim, action_dim, device):
@@ -112,17 +118,55 @@ class RolloutBuffer:
 
 
 # ==========================================
-# 4. 训练主循环
+# 4. 训练主循环（适配 MultiUavEnv）
 # ==========================================
 def train():
     args = PPOArgs()
-    env = MicroBattleEnv()
 
-    # 动态获取维度
-    dummy_obs, _ = env.reset()
-    obs_dim = env.observation_space["agent_0"].shape[0]
-    action_dim = env.action_space["agent_0"].shape[0]
-    global_state_dim = obs_dim * Config.NUM_AGENTS  # CTDE 拼接全局状态
+    # ==========================================
+    # 修改：创建你自己的环境实例
+    # ==========================================
+    # 方式一：如果有配置文件
+    # cf = load_config("path/to/config.ini")
+    # env = MultiUavEnv(rank=0, mode="train", cf=cf, episode_limit=500, is_debug=False, is_share=True)
+
+    # 方式二：直接传入 cf 参数（需要先构造）
+    # 如果你暂时没有配置文件，可以传 None，然后在 init_from_config 里用默认值
+    env = MultiUavEnv(
+        rank=0,
+        mode="train",
+        cf=None,  # 如果你有配置文件，替换这里
+        episode_limit=500,
+        is_debug=False,
+        is_share=True
+    )
+
+    # ==========================================
+    # 获取维度（适配你的环境）
+    # ==========================================
+    # 注意：你的环境返回的是 list of obs，而不是 dict
+    # 先用 reset 获取初始观测
+    obs_list = env.reset()  # obs_list 是 list of np.array
+
+    # 单智能体观测维度
+    # 你的 obs 是 28 维向量（在 get_observation_of_a_uav 里定义的）
+    if env.is_share:
+        # 如果是 share 模式，obs 是一个 dict，有 "linear" 字段
+        obs_dim = env.observation_space[0]["linear"].shape[0]
+        # 或者直接取实际 obs 的维度
+        # obs_dim = len(obs_list[0])
+    else:
+        # 如果是非 share 模式，obs 直接是 Box 向量
+        obs_dim = env.observation_space[0].shape[0]
+
+    # 动作维度：你的动作是 Box(3)
+    action_dim = env.action_space[0].shape[0]
+
+    # 全局状态维度 = 所有智能体的观测拼接
+    num_agents = env.n_total_uavs  # 从环境获取智能体数量
+    global_state_dim = obs_dim * num_agents
+
+    print(f"obs_dim: {obs_dim}, action_dim: {action_dim}, num_agents: {num_agents}")
 
     # 实例化网络与优化器
     actor = Actor(obs_dim, action_dim).to(args.device)
@@ -132,25 +176,32 @@ def train():
         {'params': critic.parameters(), 'lr': args.lr}
     ], eps=1e-5)
 
-    buffer = RolloutBuffer(args.num_steps, Config.NUM_AGENTS, obs_dim, global_state_dim, action_dim, args.device)
+    buffer = RolloutBuffer(args.num_steps, num_agents, obs_dim, global_state_dim, action_dim, args.device)
 
     # 日志探针数据结构
     ep_rewards = deque(maxlen=args.log_interval)
     ep_lengths = deque(maxlen=args.log_interval)
-    ep_boss_hp = deque(maxlen=args.log_interval)
-    ep_agents_hp = deque(maxlen=args.log_interval)
+    ep_success = deque(maxlen=args.log_interval)  # 记录成功率
     all_episode_rewards = []
 
     global_step = 0
     start_time = time.time()
 
-    obs_dict, _ = env.reset()
+    # ==========================================
+    # 修改：处理初始观测（适配你的环境）
+    # ==========================================
+    obs_list = env.reset()
+    # 转换为 tensor [num_agents, obs_dim]
+    obs_tensor = torch.tensor(np.array(obs_list), dtype=torch.float32).to(args.device)
+
     current_ep_reward = 0
     current_ep_length = 0
+    current_ep_success = 0  # 1 表示成功，0 表示失败
 
     print(f"[{time.strftime('%H:%M:%S')}] 开始 MAPPO 训练 | 设备: {args.device} | 目标步数: {args.total_timesteps}")
+    print(f"智能体数量: {num_agents}, 观测维度: {obs_dim}, 动作维度: {action_dim}")
     print("-" * 80)
-    print(f"{'Step':>10} | {'Ep Reward':>10} | {'Ep Len':>8} | {'Boss HP %':>10} | {'Agents HP %':>11} | {'FPS':>6}")
+    print(f"{'Step':>10} | {'Ep Reward':>10} | {'Ep Len':>8} | {'Success Rate':>10} | {'FPS':>6}")
     print("-" * 80)
 
     while global_step < args.total_timesteps:
@@ -163,64 +214,81 @@ def train():
         for step in range(args.num_steps):
             global_step += 1
 
-            # 转换数据格式
-            obs_tensor = torch.tensor(np.array(list(obs_dict.values())), dtype=torch.float32).to(args.device)
-            global_state_tensor = obs_tensor.flatten().unsqueeze(0)  # [1, 63]
+            # 构建全局状态
+            global_state_tensor = obs_tensor.flatten().unsqueeze(0)  # [1, global_state_dim]
 
             with torch.no_grad():
-                # Actor 给出动作
-                action_dist = actor(obs_tensor)
-                action = action_dist.sample()
-                logprob = action_dist.log_prob(action).sum(1)
-                # Critic 给出价值 (由于所有 Agent 共享同一个全局奖励预期，价值函数评估全局状态)
-                value = critic(global_state_tensor).flatten()
-                # 扩展 value 到各个 Agent 维度
-                value_expanded = value.expand(Config.NUM_AGENTS)
+                # Actor 给出动作（所有智能体共享同一个策略网络）
+                action_dist = actor(obs_tensor)  # obs_tensor: [num_agents, obs_dim]
+                action = action_dist.sample()  # [num_agents, action_dim]
+                logprob = action_dist.log_prob(action).sum(1)  # [num_agents]
 
-            # 裁剪动作并执行步进
+                # Critic 给出价值（输入全局状态）
+                value = critic(global_state_tensor).flatten()  # [1] -> 标量
+                value_expanded = value.expand(num_agents)  # [num_agents]
+
+            # 裁剪动作到 [-1, 1]
             action_np = torch.clamp(action, -1.0, 1.0).cpu().numpy()
-            action_dict = {f"agent_{i}": action_np[i] for i in range(Config.NUM_AGENTS)}
 
-            next_obs_dict, rewards_dict, term_dict, trunc_dict, infos = env.step(action_dict)
+            # 你的环境 step 接收的是 list of actions
+            # 每个 action 是 shape=(3,) 的 numpy array
+            action_list = [action_np[i] for i in range(num_agents)]
 
-            # 处理奖励和结束标志
-            reward_tensor = torch.tensor(list(rewards_dict.values()), dtype=torch.float32).to(args.device)
-            done_tensor = torch.tensor(list(term_dict.values()), dtype=torch.float32).to(args.device)
+            # ==========================================
+            # 执行步进
+            # ==========================================
+            next_obs_list, rewards_list, term_list, info = env.step(action_list)
+            # 注意：你的环境返回的 term_list 是 list of bool
 
-            buffer.add(obs_tensor, global_state_tensor.squeeze(0), action, logprob, reward_tensor, done_tensor,
-                       value_expanded)
+            # 转换数据格式
+            reward_tensor = torch.tensor(np.array(rewards_list).flatten(), dtype=torch.float32).to(args.device)
+            done_tensor = torch.tensor(np.array(term_list), dtype=torch.float32).to(args.device)
+            next_obs_tensor = torch.tensor(np.array(next_obs_list), dtype=torch.float32).to(args.device)
 
-            obs_dict = next_obs_dict
-            current_ep_reward += sum(rewards_dict.values()) / Config.NUM_AGENTS  # 记录平均单兵总收益
+            # 存入 Buffer
+            buffer.add(obs_tensor, global_state_tensor.squeeze(0), action, logprob,
+                       reward_tensor, done_tensor, value_expanded)
+
+            obs_tensor = next_obs_tensor
+            current_ep_reward += np.mean(rewards_list)
             current_ep_length += 1
 
+            # 判断是否成功（你的环境里，任务成功时 term_list 全为 True，且 rewards 里有 +100）
+            if any(term_list):
+                # 检查是否有任务成功奖励
+                if max(rewards_list) > 50:  # 有 +100 奖励，说明任务成功
+                    current_ep_success = 1
+                else:
+                    current_ep_success = 0
+
             # 回合结束逻辑
-            if any(term_dict.values()) or any(trunc_dict.values()):
+            if any(term_list):
                 ep_rewards.append(current_ep_reward)
                 ep_lengths.append(current_ep_length)
-                ep_boss_hp.append(infos["env_state"]["boss_hp"] / Config.BOSS_MAX_HP * 100)
-
-                # 计算平均剩余血量
-                alive_hps = [env.agents[i, 2] for i in range(Config.NUM_AGENTS) if env.agents[i, 4] == 0]
-                avg_agent_hp = sum(alive_hps) / len(alive_hps) if alive_hps else 0.0
-                ep_agents_hp.append(avg_agent_hp / Config.AGENT_MAX_HP * 100)
+                ep_success.append(current_ep_success)
 
                 all_episode_rewards.append(current_ep_reward)
 
                 # 打印探针日志
-                if len(ep_rewards) >= args.log_interval and sum(ep_lengths) >= args.log_interval:
+                if len(ep_rewards) >= args.log_interval:
                     fps = int(global_step / (time.time() - start_time))
+                    success_rate = np.mean(ep_success) * 100
                     print(f"{global_step:>10} | "
                           f"{np.mean(ep_rewards):>10.2f} | "
                           f"{np.mean(ep_lengths):>8.0f} | "
-                          f"{np.mean(ep_boss_hp):>9.1f}% | "
-                          f"{np.mean(ep_agents_hp):>10.1f}% | "
+                          f"{success_rate:>9.1f}% | "
                           f"{fps:>6}")
-                    ep_rewards.clear()  # 清空队列，等下一批
+                    # 清空队列
+                    ep_rewards.clear()
+                    ep_lengths.clear()
+                    ep_success.clear()
 
-                obs_dict, _ = env.reset()
+                # 重置环境
+                obs_list = env.reset()
+                obs_tensor = torch.tensor(np.array(obs_list), dtype=torch.float32).to(args.device)
                 current_ep_reward = 0
                 current_ep_length = 0
+                current_ep_success = 0
 
         # -------------------------------------
         # 阶段 B：GAE 计算与 PPO 更新
@@ -229,10 +297,9 @@ def train():
         critic.train()
 
         # 获取最后一步的价值用于 Bootstrap
-        obs_tensor = torch.tensor(np.array(list(obs_dict.values())), dtype=torch.float32).to(args.device)
         global_state_tensor = obs_tensor.flatten().unsqueeze(0)
         with torch.no_grad():
-            next_value = critic(global_state_tensor).flatten().expand(Config.NUM_AGENTS)
+            next_value = critic(global_state_tensor).flatten().expand(num_agents)
 
         # 计算 GAE 和 Returns
         advantages = torch.zeros_like(buffer.rewards).to(args.device)
@@ -250,24 +317,23 @@ def train():
 
         # 展平 Buffer 数据
         b_obs = buffer.obs.view(-1, obs_dim)
-        b_global_states = buffer.global_states.unsqueeze(1).expand(-1, Config.NUM_AGENTS, -1).reshape(-1,
-                                                                                                      global_state_dim)
+        b_global_states = buffer.global_states.unsqueeze(1).expand(-1, num_agents, -1).reshape(-1, global_state_dim)
         b_actions = buffer.actions.view(-1, action_dim)
         b_logprobs = buffer.logprobs.view(-1)
         b_advantages = advantages.view(-1)
         b_returns = returns.view(-1)
         b_values = buffer.values.view(-1)
 
-        # 学习率退火 (Linear Decay)
+        # 学习率退火
         frac = 1.0 - (global_step - 1.0) / args.total_timesteps
         current_lr = args.lr * frac
         optimizer.param_groups[0]["lr"] = current_lr
         optimizer.param_groups[1]["lr"] = current_lr
 
-        b_inds = np.arange(args.num_steps * Config.NUM_AGENTS)
+        b_inds = np.arange(args.num_steps * num_agents)
         for epoch in range(args.n_epochs):
             np.random.shuffle(b_inds)
-            for start in range(0, args.num_steps * Config.NUM_AGENTS, args.batch_size):
+            for start in range(0, args.num_steps * num_agents, args.batch_size):
                 end = start + args.batch_size
                 mb_inds = b_inds[start:end]
 
@@ -278,7 +344,6 @@ def train():
                 logratio = newlogprob - b_logprobs[mb_inds]
                 ratio = logratio.exp()
 
-                # Advantage 归一化 (Batch级别)
                 mb_advantages = b_advantages[mb_inds]
                 mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8)
 
@@ -298,7 +363,6 @@ def train():
                 v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
                 v_loss = 0.5 * v_loss_max.mean()
 
-                # 总损失与反向传播
                 loss = pg_loss - args.ent_coef * entropy + v_loss * args.vf_coef
 
                 optimizer.zero_grad()
@@ -319,13 +383,13 @@ def train():
             print(f">>> 模型已保存至: {model_path}")
 
     # ==========================================
-    # 5. 训练结束，绘制曲线
+    # 5. 训练结束
     # ==========================================
     print(f"[{time.strftime('%H:%M:%S')}] 训练结束！共耗时 {(time.time() - start_time) / 3600:.2f} 小时。")
-    Plot.plot_learning_curve(all_episode_rewards, title="MAPPO Micro Battle - Agent Average Reward", window=100)
+    print(f"总回合数: {len(all_episode_rewards)}")
+    print(f"平均奖励: {np.mean(all_episode_rewards):.2f}")
 
 
 if __name__ == "__main__":
-    # 为了避免多进程报错，加上这句保护
     torch.set_num_threads(4)
     train()
