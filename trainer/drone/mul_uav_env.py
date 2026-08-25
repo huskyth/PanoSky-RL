@@ -231,6 +231,13 @@ class MultiUavEnv:
                      "curriculum_stage": self.curriculum_stage}
         self.episode_data.append(data_save)
 
+        # 创建新的数据文件（包含开始时间）
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.episode_data_file = f"./visualization_data/episode_{timestamp}_{self.n_episode}.json"
+
+        # 确保目录存在
+        Path("./visualization_data").mkdir(exist_ok=True)
         return self.get_state_of_all_uav()
 
     def _init_toward_velocity(self, uav, target):
@@ -401,51 +408,8 @@ class MultiUavEnv:
 
         ret_reward = self.reward
 
-        # 在 step 方法返回之前加入：
-        if self.enable_visualization:
-            try:
-                # 构造状态字典
-                uavs_data = []
-                for i, uav in enumerate(self.raw_uavs):
-                    uavs_data.append({
-                        "pos": uav.position[:2],  # 只取 x,y
-                        "vel": uav.velocity[:2],
-                        "is_targeted": (self._get_game_target_idx() == i),
-                        "status": 0 if uav.status == UAVState.ALIVE else 1,
-                        "dist": compute_distance(self.weapon, uav.position)
-                    })
-
-                # 获取武器状态
-                weapon_state = EnvironmentInterface.get_weapon_state()  # 0-4
-                tuning_time = 0
-                if hasattr(EnvironmentInterface, 'get_tuning_time'):
-                    tuning_time = EnvironmentInterface.get_tuning_time()
-
-                state_payload = {
-                    "uavs": uavs_data,
-                    "weapon": {
-                        "pos": self.weapon[:2],
-                        "top_project_position": EnvironmentInterface.get_top_project_position(),
-                        "state": weapon_state
-                    },
-                    "target": self.target[:2],
-                    "bullets": [],  # 如果有子弹列表，可以传爆炸半径和位置
-                    "rewards": self.reward if isinstance(self.reward, list) else [0, 0],
-                    "step": self._episode_steps,
-                    "info": {
-                        "target_id": self._get_game_target_idx(),
-                        "tuning_time": tuning_time
-                    }
-                }
-
-                # 用新线程发送，不阻塞训练
-                threading.Thread(target=lambda: requests.post(
-                    'http://127.0.0.1:5000/api/update',
-                    json=state_payload,
-                    timeout=0.1
-                ), daemon=True).start()
-            except Exception as e:
-                pass  # 可视化失败不影响训练
+        # 在返回之前记录数据
+        self._record_step_data(action)
         return self.get_state_of_all_uav(), ret_reward, self.is_terminal, {i: {'individual_reward': self.reward[i]} for
                                                                            i in range(self.n_total_uavs)}
 
@@ -462,6 +426,65 @@ class MultiUavEnv:
                      "curriculum_stage": self.curriculum_stage}
         self.episode_data.append(data_save)
 
+    # 在 MultiUavEnv 类中添加
+    def _record_step_data(self, action):
+        """记录每一步的关键数据到 JSON 文件"""
+        if not self.is_debug:
+            return
+
+        # 获取武器状态
+        weapon_state = EnvironmentInterface.get_weapon_state()
+        target_idx = self._get_game_target_idx()
+
+        # 记录无人机数据
+        uavs_data = []
+        for i, uav in enumerate(self.raw_uavs):
+            uavs_data.append({
+                "id": i,
+                "position": uav.position.copy(),
+                "velocity": uav.velocity.copy(),
+                "status": uav.status.value,
+                "is_targeted": (target_idx == i),
+                "dist_to_weapon": compute_distance(self.weapon, uav.position),
+                "dist_to_target": compute_distance(uav.position, self.target),
+            })
+
+        # 构造完整 step 数据
+        step_record = {
+            "step": self._episode_steps,
+            "reward": self.reward.copy() if isinstance(self.reward, list) else [0, 0],
+            "is_terminal": self.is_terminal.copy(),
+            "weapon": {
+                "position": self.weapon.copy(),
+                "state": weapon_state,
+                "top_project_position": getattr(self, 'top_project_position', self.weapon.copy()),
+            },
+            "target": self.target.copy(),
+            "uavs": uavs_data,
+            "action": action.tolist() if hasattr(action, 'tolist') else action,
+        }
+
+        # 追加到文件
+        file_path = Path(self.episode_data_file)
+        # 确保目录存在
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # 读取现有数据
+        if file_path.exists():
+            with open(file_path, 'r', encoding='utf-8') as f:
+                try:
+                    existing = json.load(f)
+                except:
+                    existing = []
+        else:
+            existing = []
+
+        # 追加新记录
+        existing.append(step_record)
+
+        # 写回文件
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(existing, f, ensure_ascii=False, indent=2)
     # ============================================================
     # set_reward（分离+共享奖励，含摸鱼/自杀惩罚）
     # ============================================================
