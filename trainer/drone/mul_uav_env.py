@@ -428,61 +428,108 @@ class MultiUavEnv:
 
     # 在 MultiUavEnv 类中添加
     def _record_step_data(self, action):
-        """记录每一步的关键数据到 JSON 文件"""
+        """
+        记录每步数据到 JSON，供可视化使用
+        调用位置：在 step() 返回之前调用
+        """
         if not self.is_debug:
             return
 
         # 获取武器状态
-        weapon_state = EnvironmentInterface.get_weapon_state()
-        target_idx = self._get_game_target_idx()
+        weapon_state = EnvironmentInterface.get_weapon_state()  # 0~4
+        tuning_time = 0.0
+        if hasattr(EnvironmentInterface, 'get_tuning_time'):
+            tuning_time = EnvironmentInterface.get_tuning_time()
 
-        # 记录无人机数据
+        # 获取炮口指向（瞄准点）
+        aim_point = None
+        if hasattr(EnvironmentInterface, 'get_aim_point'):
+            aim_point = EnvironmentInterface.get_aim_point()
+        if not aim_point:
+            # 默认指向目标方向
+            to_target = np.array(self.target) - np.array(self.weapon)
+            norm = np.linalg.norm(to_target)
+            if norm > 0:
+                to_target = to_target / norm * 50
+            else:
+                to_target = np.array([50, 0, 0])
+            aim_point = (np.array(self.weapon) + to_target).tolist()
+
+        # 构造无人机数据
         uavs_data = []
         for i, uav in enumerate(self.raw_uavs):
             uavs_data.append({
-                "id": i,
-                "position": uav.position.copy(),
-                "velocity": uav.velocity.copy(),
-                "status": uav.status.value,
-                "is_targeted": (target_idx == i),
-                "dist_to_weapon": compute_distance(self.weapon, uav.position),
-                "dist_to_target": compute_distance(uav.position, self.target),
+                "id": f"UAV-{i:03d}",
+                "x": float(uav.position[0]),
+                "z": float(uav.position[1]),
+                "altitude": float(uav.position[2]),
+                "speed": float(np.linalg.norm(uav.velocity)),
+                "battery": 100,
+                "is_decoy": (i == 0),
+                "is_targeted": (self._get_game_target_idx() == i),
+                "velocity": uav.velocity.tolist() if hasattr(uav.velocity, 'tolist') else uav.velocity
             })
 
-        # 构造完整 step 数据
+        # 构造武器数据
+        weapon_data = {
+            "id": "WPN-001",
+            "entityType": "weapon",
+            "x": float(self.weapon[0]),
+            "z": float(self.weapon[1]),
+            "altitude": float(self.weapon[2]),
+            "state": weapon_state,
+            "tuning_time": float(tuning_time),
+            "aim_x": float(aim_point[0]),
+            "aim_y": float(aim_point[1]),
+            "aim_z": float(aim_point[2]),
+            "range": float(self.weapon_fire_radius),
+            "ammo": 1000
+        }
+
+        # 构造目标数据
+        target_data = {
+            "id": "TGT-001",
+            "entityType": "target",
+            "x": float(self.target[0]),
+            "z": float(self.target[1]),
+            "altitude": float(self.target[2]),
+            "threatLevel": "高",
+            "targetType": "雷达站",
+            "threatRange": 50
+        }
+
+        # 完整记录
         step_record = {
             "step": self._episode_steps,
-            "reward": self.reward.copy() if isinstance(self.reward, list) else [0, 0],
-            "is_terminal": self.is_terminal.copy(),
-            "weapon": {
-                "position": self.weapon.copy(),
-                "state": weapon_state,
-                "top_project_position": getattr(self, 'top_project_position', self.weapon.copy()),
-            },
-            "target": self.target.copy(),
+            "reward": self.reward if isinstance(self.reward, list) else [float(self.reward)],
+            "is_terminal": self.is_terminal,
             "uavs": uavs_data,
-            "action": action.tolist() if hasattr(action, 'tolist') else action,
+            "weapon": weapon_data,
+            "target": target_data,
+            "action": action.tolist() if hasattr(action, 'tolist') else action
         }
 
         # 追加到文件
+        import json
+        from pathlib import Path
+
         file_path = Path(self.episode_data_file)
-        # 确保目录存在
         file_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # 读取现有数据
+        # 读取已有数据
         if file_path.exists():
             with open(file_path, 'r', encoding='utf-8') as f:
                 try:
                     existing = json.load(f)
+                    if not isinstance(existing, list):
+                        existing = []
                 except:
                     existing = []
         else:
             existing = []
 
-        # 追加新记录
         existing.append(step_record)
 
-        # 写回文件
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(existing, f, ensure_ascii=False, indent=2)
     # ============================================================
