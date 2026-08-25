@@ -11,7 +11,7 @@
         body { margin: 0; overflow: hidden; background: #0f172a; font-family: sans-serif; }
         #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
         .glass-panel { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(12px); border: 1px solid rgba(56, 189, 248, 0.2); box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
-        #controls { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10; padding: 12px 24px; border-radius: 12px; display: flex; align-items: center; gap: 16px; background: rgba(15, 23, 42, 0.9); border: 1px solid #38bdf8; }
+        #controls { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10; padding: 12px 24px; border-radius: 12px; display: none; align-items: center; gap: 16px; background: rgba(15, 23, 42, 0.9); border: 1px solid #38bdf8; }
         #controls button { background: transparent; border: 1px solid #38bdf8; color: #38bdf8; padding: 4px 12px; border-radius: 6px; cursor: pointer; }
         #controls button:hover { background: rgba(56, 189, 248, 0.2); }
         #controls input[type="range"] { width: 300px; }
@@ -37,12 +37,11 @@
 
     <script>
         // =============================================
-        // 1. Three.js 场景初始化（含地形）
+        // 1. Three.js 场景初始化
         // =============================================
         const container = document.getElementById('canvas-container');
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x0f172a);
-        scene.fog = new THREE.Fog(0x0f172a, 200, 800);
 
         const camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 2000);
         camera.position.set(120, 80, 120);
@@ -66,60 +65,53 @@
         dirLight.position.set(50, 100, 50);
         scene.add(dirLight);
 
-        // ---- 地形（永久保留） ----
-        const terrainGroup = new THREE.Group();
-        scene.add(terrainGroup);
+        // ---- 坐标轴 ----
+        const axesHelper = new THREE.AxesHelper(80);
+        scene.add(axesHelper);
 
-        function buildTerrain() {
-            // 清除旧地形
-            while(terrainGroup.children.length) {
-                const child = terrainGroup.children[0];
-                terrainGroup.remove(child);
+        // ---- 地面网格 ----
+        const gridHelper = new THREE.GridHelper(400, 20, 0x1e293b, 0x1e293b);
+        gridHelper.position.y = -0.1;
+        scene.add(gridHelper);
+
+        // ---- 动态实体容器 ----
+        const entityGroup = new THREE.Group();
+        scene.add(entityGroup);
+
+        const bulletGroup = new THREE.Group();
+        scene.add(bulletGroup);
+
+        // ---- 工具函数 ----
+        function clearEntities() {
+            while(entityGroup.children.length) {
+                const child = entityGroup.children[0];
+                entityGroup.remove(child);
                 if (child.geometry) child.geometry.dispose();
                 if (child.material) child.material.dispose();
             }
-            const size = 300, seg = 100;
-            const geo = new THREE.PlaneGeometry(size, size, seg, seg);
-            const pos = geo.attributes.position;
-            for (let i = 0; i < pos.count; i++) {
-                const x = pos.getX(i);
-                const y = pos.getY(i);
-                const h = Math.sin(x*0.03)*10 + Math.cos(y*0.03)*10 + Math.sin(x*0.08+y*0.05)*5 + (Math.random()-0.5)*1;
-                pos.setZ(i, h);
+            while(bulletGroup.children.length) {
+                const child = bulletGroup.children[0];
+                bulletGroup.remove(child);
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) child.material.dispose();
             }
-            geo.computeVertexNormals();
-            const mat = new THREE.MeshStandardMaterial({ color: 0x1e293b, flatShading: true, roughness: 0.8 });
-            const mesh = new THREE.Mesh(geo, mat);
-            mesh.rotation.x = -Math.PI/2;
-            mesh.position.y = -2;
-            mesh.receiveShadow = true;
-            terrainGroup.add(mesh);
-            // 线框
-            const wire = new THREE.Mesh(geo.clone(), new THREE.MeshBasicMaterial({ color: 0x38bdf8, wireframe: true, transparent: true, opacity: 0.05 }));
-            wire.rotation.x = -Math.PI/2;
-            wire.position.y = -1.8;
-            terrainGroup.add(wire);
         }
-        buildTerrain();
 
-        // ---- 坐标轴 ----
-        const axes = new THREE.AxesHelper(50);
-        scene.add(axes);
-
-        // ---- 动态实体 ----
-        const entityGroup = new THREE.Group();
-        scene.add(entityGroup);
-        let entities = { drones: [], weapons: [], targets: [] };
-
-        // ---- 工具：创建无人机 ----
+        // ---- 创建无人机 ----
         function createDrone(pos, color, label) {
             const g = new THREE.Group();
-            const body = new THREE.Mesh(new THREE.SphereGeometry(2, 8, 8), new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.3 }));
+            const body = new THREE.Mesh(
+                new THREE.SphereGeometry(2, 8, 8),
+                new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.3 })
+            );
             g.add(body);
-            // 螺旋桨
             for (let i=0; i<4; i++) {
-                const prop = new THREE.Mesh(new THREE.BoxGeometry(3, 0.1, 0.3), new THREE.MeshStandardMaterial({ color: 0xffffff }));
-                prop.position.set(Math.cos(i*Math.PI/2)*2.2, 1.5, Math.sin(i*Math.PI/2)*2.2);
+                const prop = new THREE.Mesh(
+                    new THREE.BoxGeometry(3, 0.1, 0.3),
+                    new THREE.MeshStandardMaterial({ color: 0xffffff })
+                );
+                const angle = i * Math.PI / 2;
+                prop.position.set(Math.cos(angle)*2.2, 1.5, Math.sin(angle)*2.2);
                 prop.userData.rotSpeed = 0.2 + Math.random()*0.1;
                 g.add(prop);
             }
@@ -128,81 +120,129 @@
             return g;
         }
 
-        function createWeapon(pos) {
+        // ---- 创建武器（整体化，无散落） ----
+        function createWeapon(pos, aimPos) {
             const g = new THREE.Group();
-            const base = new THREE.Mesh(new THREE.CylinderGeometry(2, 2.5, 1.5, 6), new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0xd97706, emissiveIntensity: 0.1 }));
-            base.position.y = 1;
+            // 底座
+            const base = new THREE.Mesh(
+                new THREE.CylinderGeometry(3, 4, 1.5, 8),
+                new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0xd97706, emissiveIntensity: 0.1 })
+            );
+            base.position.set(0, 0.8, 0);
             g.add(base);
-            const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.5, 4, 6), new THREE.MeshStandardMaterial({ color: 0x475569 }));
-            barrel.rotation.x = Math.PI/2;
-            barrel.position.set(0, 2, 3);
+            // 炮塔
+            const turret = new THREE.Mesh(
+                new THREE.SphereGeometry(2, 8, 8),
+                new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0xd97706, emissiveIntensity: 0.05 })
+            );
+            turret.position.set(0, 2.2, 0);
+            g.add(turret);
+            // 炮管
+            const barrel = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.4, 0.6, 4, 6),
+                new THREE.MeshStandardMaterial({ color: 0x475569 })
+            );
+            barrel.rotation.x = Math.PI / 2;
+            barrel.position.set(0, 2.2, 3);
             g.add(barrel);
+
             g.position.copy(pos);
             entityGroup.add(g);
+
+            // ---- 红色瞄准线 ----
+            if (aimPos) {
+                const start = pos.clone();
+                const end = aimPos.clone();
+                const lineGeo = new THREE.BufferGeometry().setFromPoints([start, end]);
+                const lineMat = new THREE.LineBasicMaterial({ color: 0xff0000 });
+                const line = new THREE.Line(lineGeo, lineMat);
+                entityGroup.add(line);
+
+                // 弦顶标记（黄色小球）
+                const dot = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.6, 6, 6),
+                    new THREE.MeshBasicMaterial({ color: 0xffff00 })
+                );
+                dot.position.copy(end);
+                entityGroup.add(dot);
+            }
             return g;
         }
 
+        // ---- 创建目标 ----
         function createTarget(pos) {
             const g = new THREE.Group();
-            const box = new THREE.Mesh(new THREE.BoxGeometry(3, 2, 4), new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0xdc2626 }));
-            box.position.y = 1.5;
+            const box = new THREE.Mesh(
+                new THREE.BoxGeometry(3, 2, 4),
+                new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0xdc2626 })
+            );
+            box.position.set(0, 1.5, 0);
             g.add(box);
-            const marker = new THREE.Mesh(new THREE.SphereGeometry(0.8, 6, 6), new THREE.MeshBasicMaterial({ color: 0xef4444 }));
-            marker.position.y = 3.5;
+            const marker = new THREE.Mesh(
+                new THREE.SphereGeometry(0.8, 6, 6),
+                new THREE.MeshBasicMaterial({ color: 0xef4444 })
+            );
+            marker.position.set(0, 3.5, 0);
             g.add(marker);
             g.position.copy(pos);
             entityGroup.add(g);
             return g;
         }
 
-        // ---- 辅助：清除实体 ----
-        function clearEntities() {
-            while(entityGroup.children.length) {
-                const child = entityGroup.children[0];
-                entityGroup.remove(child);
-                if (child.geometry) child.geometry.dispose();
-                if (child.material) child.material.dispose();
-            }
-            entities = { drones: [], weapons: [], targets: [] };
-        }
-
         // ---- 渲染场景帧 ----
         function renderFrame(data) {
             clearEntities();
             if (!data) return;
-            // 无人机
+
+            // 1. 无人机
             const uavs = data.uva_state || data.uavs || [];
             uavs.forEach((u, i) => {
-                const pos = new THREE.Vector3(u.position[0], u.position[2] || 10, u.position[1]);
-                const color = (i===0) ? 0x38bdf8 : 0xf0883e;
-                const g = createDrone(pos, color, `UAV${i}`);
-                // 存储引用以便后续更新（此处简化）
+                const pos = new THREE.Vector3(u.position[0], u.position[1], u.position[2]);
+                const color = (i === 0) ? 0x38bdf8 : 0xf0883e;
+                createDrone(pos, color, `UAV${i}`);
             });
-            // 武器
+
+            // 2. 武器
             const w = data.weapon || data.weapon_data;
             if (w) {
-                const pos = new THREE.Vector3(w.position ? w.position[0] : w[0], w.position ? w.position[2] : w[2], w.position ? w.position[1] : w[1]);
-                createWeapon(pos);
-                // 瞄准线
+                const wPos = w.position ? w.position : w;
+                const pos = new THREE.Vector3(wPos[0], wPos[1], wPos[2]);
+                let aimPos = null;
                 if (w.aim_x !== undefined) {
-                    const start = pos.clone();
-                    const end = new THREE.Vector3(w.aim_x, w.aim_z || 0, w.aim_y || 0);
-                    const lineGeo = new THREE.BufferGeometry().setFromPoints([start, end]);
-                    const lineMat = new THREE.LineBasicMaterial({ color: 0xff0000 });
-                    const line = new THREE.Line(lineGeo, lineMat);
-                    entityGroup.add(line);
+                    aimPos = new THREE.Vector3(w.aim_x, w.aim_y || 0, w.aim_z || 0);
+                } else if (w.top_project_position) {
+                    aimPos = new THREE.Vector3(
+                        w.top_project_position[0],
+                        w.top_project_position[1],
+                        w.top_project_position[2]
+                    );
                 }
+                createWeapon(pos, aimPos);
             }
-            // 目标
+
+            // 3. 目标
             const t = data.target || data.target_point;
             if (t) {
-                const pos = new THREE.Vector3(t.position ? t.position[0] : t[0], t.position ? t.position[2] : t[2], t.position ? t.position[1] : t[1]);
+                const tPos = t.position ? t.position : t;
+                const pos = new THREE.Vector3(tPos[0], tPos[1], tPos[2]);
                 createTarget(pos);
             }
+
+            // 4. 子弹（橙色，与黄色弦顶区分）
+            const bullets = data.bullets || [];
+            bullets.forEach(b => {
+                const pos = new THREE.Vector3(b.x, b.y || 0, b.z || 0);
+                const sphere = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.8, 6, 6),
+                    new THREE.MeshBasicMaterial({ color: 0xff8800 })
+                );
+                sphere.position.copy(pos);
+                bulletGroup.add(sphere);
+            });
         }
 
         // =============================================
-        // 2. 回放控制器
+        // 2. 回放控制器（不变）
         // =============================================
         let fullData = [];
         let currentIndex = 0;
@@ -244,7 +284,6 @@
             clearInterval(playTimer);
         }
 
-        // 事件绑定
         playBtn.addEventListener('click', () => isPlaying ? stopPlayback() : startPlayback());
         resetBtn.addEventListener('click', () => { stopPlayback(); if(fullData.length) goToStep(0); });
         timeline.addEventListener('input', () => { if(isPlaying) stopPlayback(); goToStep(parseInt(timeline.value)); });
@@ -276,31 +315,28 @@
             reader.onload = function(ev) {
                 try {
                     const data = JSON.parse(ev.target.result);
-                    log(`JSON 解析成功，类型: ${Array.isArray(data) ? '数组' : '对象'}`);
-                    // 处理数据
+                    log(`JSON 解析成功`);
                     if (Array.isArray(data)) {
                         fullData = data;
                     } else if (data.episode_data && Array.isArray(data.episode_data)) {
                         fullData = data.episode_data;
                     } else {
-                        // 单帧，转为数组
                         fullData = [data];
                     }
                     if (fullData.length === 0) { log('数据为空'); return; }
                     log(`加载 ${fullData.length} 步数据`);
-                    // 启用回放
                     timeline.max = fullData.length - 1;
                     timeline.value = 0;
-                    goToStep(0);
                     document.getElementById('controls').style.display = 'flex';
-                    log('✅ 数据加载成功，开始回放');
+                    goToStep(0);
+                    log('✅ 数据加载成功');
                 } catch(err) {
                     log('❌ JSON 解析失败: ' + err.message);
                     alert('解析失败: ' + err.message);
                 }
             };
             reader.readAsText(file);
-            this.value = ''; // 允许重复选择
+            this.value = '';
         });
 
         // =============================================
@@ -320,7 +356,9 @@
         }
         animate();
 
-        // 初始加载一些模拟数据方便测试
+        // =============================================
+        // 5. 模拟数据（修正高度，使场景可见）
+        // =============================================
         function generateMockData() {
             const steps = 30;
             const data = [];
@@ -330,26 +368,33 @@
                     _episode_steps: i,
                     uva_state: [
                         { position: [20 + i*0.8, 15 + Math.sin(i*0.2)*8, 20 + Math.sin(i*0.15)*4], velocity: [5,0,1], id: 'UAV-001' },
-                        { position: [-20 + i*0.5, -10 + Math.cos(i*0.25)*10, 30 + Math.cos(i*0.1)*6], velocity: [-3,0,0.5], id: 'UAV-002' }
+                        { position: [-20 + i*0.5, 10 + Math.cos(i*0.25)*10, 30 + Math.cos(i*0.1)*6], velocity: [-3,0,0.5], id: 'UAV-002' }
                     ],
-                    weapon: { position: [-50, -50, 0], state: Math.floor(i/8)%3, tuning_time: Math.max(0, 1.5 - i*0.04), aim_x: -50 + Math.sin(i*0.08)*25, aim_y: 0, aim_z: -50 + Math.cos(i*0.08)*25 },
-                    target: { position: [30, -30, 0] }
+                    weapon: {
+                        position: [-40, 0, -40],   // 高度改为 0（地面）
+                        state: Math.floor(i/8)%3,
+                        tuning_time: Math.max(0, 1.5 - i*0.04),
+                        aim_x: -40 + Math.sin(i*0.08)*25,
+                        aim_y: 2 + Math.sin(i*0.1)*1.5,   // 瞄准点高度在 0.5~3.5 之间变化
+                        aim_z: -40 + Math.cos(i*0.08)*25
+                    },
+                    target: { position: [30, 0, -30] },   // 高度 0
+                    bullets: (i % 5 === 0) ? [{ x: -40 + Math.sin(i*0.08)*25*0.4, y: 1, z: -40 + Math.cos(i*0.08)*25*0.4 }] : []
                 });
             }
             return data;
         }
 
-        // 自动加载模拟数据
         setTimeout(() => {
             const mock = generateMockData();
             fullData = mock;
             timeline.max = fullData.length - 1;
-            goToStep(0);
             document.getElementById('controls').style.display = 'flex';
-            log('📊 已加载模拟数据（30步），点击「加载JSON」可替换');
+            goToStep(0);
+            log('📊 已加载模拟数据（30步，武器高度0，目标高度0）');
         }, 500);
 
-        console.log('✅ 系统已启动，点击右上角按钮加载您的训练 JSON 文件');
+        console.log('✅ 系统已启动（武器/目标在地面，红色=炮口指向，黄色=弦顶，橙色=子弹）');
     </script>
 </body>
 </html>
