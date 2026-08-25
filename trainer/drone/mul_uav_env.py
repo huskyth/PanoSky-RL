@@ -290,8 +290,9 @@ class MultiUavEnv:
     # ============================================================
     def get_observation_of_a_uav(self, uav_id):
         uav = self.raw_uavs[uav_id]
-        pos = np.array(uav.position[:2])  # 水平位置（高度在预留位）
-        vel = np.array(uav.velocity[:2])  # 水平速度
+        # 水平位置：取 x 和 y（y是水平方向）
+        pos = np.array([uav.position[0], uav.position[1]])
+        vel = np.array([uav.velocity[0], uav.velocity[1]])
 
         speed = np.linalg.norm(vel)
         if speed > 0:
@@ -299,9 +300,9 @@ class MultiUavEnv:
         else:
             vel_norm = np.array([0.0, 0.0])
 
-        weapon_pos = np.array(self.weapon[:2])
+        weapon_pos = np.array([self.weapon[0], self.weapon[1]])
 
-        # ===== 临时：获取炮口朝向（替换为真实接口） =====
+        # 炮口朝向（水平）
         weapon_forward = np.array([1.0, 0.0])
 
         rel_weapon = weapon_pos - pos
@@ -326,29 +327,33 @@ class MultiUavEnv:
         mate_pos = np.array([0.0, 0.0])
         for i in range(self.n_total_uavs):
             if i != uav_id and self.raw_uavs[i].status == UAVState.ALIVE:
-                mate_pos = np.array(self.raw_uavs[i].position[:2]) - pos
+                mate_pos = np.array([
+                    self.raw_uavs[i].position[0] - uav.position[0],
+                    self.raw_uavs[i].position[1] - uav.position[1]
+                ])
                 break
 
         bullet_rel = np.array([0.0, 0.0])
         bullet_dist = 0.0
         bullet_timer = 0.0
 
-        # 高度信息（简化为单一值）
-        height_ratio = (uav.position[2] - self.min_available_height) / (self.max_available_height - self.min_available_height)
+        # 高度信息（原始 z）
+        height_ratio = (uav.position[2] - self.min_available_height) / (
+                    self.max_available_height - self.min_available_height)
 
         obs = []
-        obs.extend(pos / self.map.map_max_x)
-        obs.extend(vel_norm)
-        obs.extend(mate_pos / self.map.map_max_x)
-        obs.append(dist_to_weapon / 3000.0)
-        obs.extend(weapon_forward)
-        obs.append(angle_cos)
+        obs.extend(pos / self.map.map_max_x)  # 水平位置 x,y
+        obs.extend(vel_norm)  # 水平速度方向
+        obs.extend(mate_pos / self.map.map_max_x)  # 队友相对位置
+        obs.append(dist_to_weapon / 3000.0)  # 到武器距离
+        obs.extend(weapon_forward)  # 炮口朝向
+        obs.append(angle_cos)  # 炮口夹角
         obs.extend(bullet_rel / self.map.map_max_x)
         obs.append(bullet_dist / 500.0)
         obs.append(bullet_timer / 3.0)
-        obs.append(is_targeted)
-        obs.append(weapon_state / 3.0)
-        obs.append(height_ratio)  # 把高度放进来
+        obs.append(is_targeted)  # 是否被锁定
+        obs.append(weapon_state / 3.0)  # 武器状态
+        obs.append(height_ratio)  # 高度信息
         obs.extend([0.0] * 11)
 
         return np.array(obs, dtype=np.float32)
@@ -448,25 +453,22 @@ class MultiUavEnv:
 
     def _record_step_data(self, action):
         """
-        记录每步数据到 JSON，坐标缩放到合理范围
+        记录每步数据到 JSON，坐标映射为 [x, z, y]（z为高度，y为深度）以适配 Three.js
         """
         if not self.is_debug:
             return
 
-        # ---- 0. 定义缩放参数 ----
-        # 把坐标映射到 [0, 500] 范围内
-        # 如果数据在 0~10000，缩放因子 20 后变成 0~500
+        # ---- 缩放参数 ----
         SCALE_FACTOR = 20.0
-        # 或者你指定一个基准点（比如目标位置）作为原点
         REFERENCE_POINT = self.target  # 以目标为原点
 
+        # ---- 坐标转换：原始 [x, y, z] -> 映射为 [x, z, y]（交换 y 和 z） ----
         def scale_pos(pos):
-            """把坐标缩放到合理范围"""
-            # 以基准点为中心，除以缩放因子
+            """pos = [x, y, z] (y水平, z高度) -> [ (x-ref_x)/scale, (z-ref_z)/scale, (y-ref_y)/scale ]"""
             return [
                 (pos[0] - REFERENCE_POINT[0]) / SCALE_FACTOR,
-                (pos[1] - REFERENCE_POINT[1]) / SCALE_FACTOR,
-                (pos[2] - REFERENCE_POINT[2]) / SCALE_FACTOR
+                (pos[2] - REFERENCE_POINT[2]) / SCALE_FACTOR,  # z 变为高度（Three.js 的 y）
+                (pos[1] - REFERENCE_POINT[1]) / SCALE_FACTOR  # y 变为深度（Three.js 的 z）
             ]
 
         # ---- 1. 获取武器状态 ----
@@ -482,7 +484,6 @@ class MultiUavEnv:
         except Exception as e:
             logger.warning(f"获取武器状态失败: {e}")
 
-        # 若 aim_point 为空，计算默认方向（指向目标）
         if not aim_point:
             to_target = np.array(self.target) - np.array(self.weapon)
             norm = np.linalg.norm(to_target)
@@ -492,7 +493,7 @@ class MultiUavEnv:
                 to_target = np.array([50, 0, 0])
             aim_point = (np.array(self.weapon) + to_target).tolist()
 
-        # ---- 2. 构造无人机数据（使用 position 数组，坐标缩放） ----
+        # ---- 2. 构造无人机数据 ----
         uavs_data = []
         for i, uav in enumerate(self.raw_uavs):
             vel = uav.velocity
@@ -505,9 +506,7 @@ class MultiUavEnv:
             elif not isinstance(vel, list):
                 vel = list(vel)
 
-            # 原始位置
             raw_pos = [float(uav.position[0]), float(uav.position[1]), float(uav.position[2])]
-            # 缩放后的位置
             scaled_pos = scale_pos(raw_pos)
 
             uavs_data.append({
@@ -520,14 +519,15 @@ class MultiUavEnv:
                 "is_targeted": (self._get_game_target_idx() == i),
             })
 
-        # ---- 3. 构造武器数据（坐标缩放） ----
+        # ---- 3. 构造武器数据 ----
         raw_weapon = [float(self.weapon[0]), float(self.weapon[1]), float(self.weapon[2])]
         scaled_weapon = scale_pos(raw_weapon)
-        # 瞄准点也要缩放
+
+        # 瞄准点也转换
         scaled_aim = [
             (aim_point[0] - REFERENCE_POINT[0]) / SCALE_FACTOR,
-            (aim_point[1] - REFERENCE_POINT[1]) / SCALE_FACTOR,
-            (aim_point[2] - REFERENCE_POINT[2]) / SCALE_FACTOR
+            (aim_point[2] - REFERENCE_POINT[2]) / SCALE_FACTOR,
+            (aim_point[1] - REFERENCE_POINT[1]) / SCALE_FACTOR
         ]
 
         weapon_data = {
@@ -539,11 +539,11 @@ class MultiUavEnv:
             "aim_x": scaled_aim[0],
             "aim_y": scaled_aim[1],
             "aim_z": scaled_aim[2],
-            "range": float(self.weapon_fire_radius) / SCALE_FACTOR,  # 范围也缩放
+            "range": float(self.weapon_fire_radius) / SCALE_FACTOR,
             "ammo": 1000
         }
 
-        # ---- 4. 构造目标数据（坐标缩放） ----
+        # ---- 4. 构造目标数据 ----
         raw_target = [float(self.target[0]), float(self.target[1]), float(self.target[2])]
         scaled_target = scale_pos(raw_target)
 
@@ -556,7 +556,7 @@ class MultiUavEnv:
             "threatRange": 50
         }
 
-        # ---- 5. 获取子弹数据（坐标缩放） ----
+        # ---- 5. 获取子弹数据 ----
         bullets_data = []
         try:
             if hasattr(EnvironmentInterface, 'get_bullets'):
