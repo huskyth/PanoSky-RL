@@ -1,3 +1,5 @@
+import numpy as np
+
 from trainer.drone.weapons.entries.phalanx.components.rader import *
 import math
 

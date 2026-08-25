@@ -17,7 +17,7 @@ from trainer.utils.util import compute_distance
 from .uav_meta_info import TrainUAV
 from pathlib import Path
 from .weapons.interfaces.environment_interface import EnvironmentInterface
-from trainer.utils.format_logger import AppLogger
+from trainer.utils.format_logger import AppLogger, _green_log_str
 
 warnings.filterwarnings('ignore')
 logger = AppLogger().get_logger()
@@ -399,7 +399,7 @@ class MultiUavEnv:
 
         self.set_reward(last_state, actions, last_target, lat_stat)
 
-        ret_reward = [[x] for x in self.reward]
+        ret_reward = self.reward
 
         # 在 step 方法返回之前加入：
         if self.enable_visualization:
@@ -521,7 +521,7 @@ class MultiUavEnv:
                 else:
                     r_bait = -0.02 * (abs(dist_to_weapon - 1750) / 200)
 
-                # 站桩惩罚（水平切向速度太小）
+                # 站桩惩罚
                 vel = np.array(uav.velocity[:2])
                 if np.linalg.norm(vel) > 0:
                     to_weapon = (np.array(self.weapon[:2]) - np.array(uav.position[:2]))
@@ -553,9 +553,10 @@ class MultiUavEnv:
             rewards[idx] = np.clip(rewards[idx], -2.0, 2.0)
             self.r_msg[idx] += f'reward={rewards[idx]:.2f}'
 
-        self.reward = rewards
+        # ===== 3. 修正：将奖励转换为扁平列表（关键改动！） =====
+        self.reward = rewards  # 已经是 [r1, r2, ...] 格式，不是嵌套列表
 
-        # ===== 3. 终局判定 =====
+        # ===== 4. 终局判定 =====
         if r_task_success > 0:
             self.append_data(action)
             msg = "任务完成！"
@@ -584,7 +585,6 @@ class MultiUavEnv:
             return
 
         self.append_data(action)
-
     def compute_init_velocity(self):
         speed = self.uav_velocity_value
         yaw = random.uniform(0, 2 * math.pi)
