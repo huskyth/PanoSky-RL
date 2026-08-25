@@ -2,64 +2,22 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>无人机突防 - 训练数据回放器</title>
+    <title>无人机突防 - 3D回放器（无重影版）</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: 'Segoe UI', Tahoma, sans-serif;
-            background: #0d1117;
-            color: #e6edf3;
-            display: flex;
-            height: 100vh;
-            overflow: hidden;
-        }
-        #sidebar {
-            width: 320px;
-            background: #161b22;
-            padding: 16px;
-            border-right: 1px solid #30363d;
-            overflow-y: auto;
-            flex-shrink: 0;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
+        body { font-family: 'Segoe UI', sans-serif; background: #0d1117; color: #e6edf3; display: flex; height: 100vh; overflow: hidden; }
+        #sidebar { width: 340px; background: #161b22; padding: 16px; border-right: 1px solid #30363d; overflow-y: auto; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; z-index: 10; }
         #sidebar h3 { font-size: 14px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
-        #main { flex: 1; display: flex; flex-direction: column; background: #0d1117; }
-        #canvas-wrapper { flex: 1; padding: 16px; display: flex; align-items: center; justify-content: center; background: #0d1117; }
-        #gameCanvas { background: #161b22; border-radius: 8px; width: 100%; height: 100%; max-width: 800px; max-height: 800px; }
-        #controls {
-            padding: 12px 20px;
-            background: #161b22;
-            border-top: 1px solid #30363d;
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            flex-wrap: wrap;
-        }
-        #controls button, #controls input[type="file"] {
-            background: #238636;
-            border: none;
-            color: white;
-            padding: 6px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 13px;
-        }
+        #main { flex: 1; display: flex; flex-direction: column; background: #0d1117; position: relative; }
+        #three-wrapper { flex: 1; overflow: hidden; position: relative; }
+        #three-wrapper canvas { display: block; width: 100% !important; height: 100% !important; }
+        #controls { padding: 12px 20px; background: #161b22; border-top: 1px solid #30363d; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+        #controls button, #controls input[type="file"] { background: #238636; border: none; color: white; padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
         #controls button:hover { background: #2ea043; }
-        #controls button:disabled { opacity: 0.5; cursor: not-allowed; }
         #controls input[type="range"] { width: 200px; background: #30363d; height: 4px; }
         #controls .info-text { font-size: 13px; color: #8b949e; }
         #step-info { font-size: 13px; color: #f0f6fc; font-weight: bold; }
-        #status-panel {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 4px 16px;
-            background: #0d1117;
-            padding: 8px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-        }
+        #status-panel { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; background: #0d1117; padding: 8px 12px; border-radius: 6px; font-size: 12px; }
         .status-item { display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; padding: 2px 0; }
         .status-label { color: #8b949e; }
         .status-value { font-weight: bold; }
@@ -68,28 +26,19 @@
         .badge-tune { background: #d29922; color: black; }
         .badge-capture { background: #1f6feb; color: white; }
         .badge-normal { background: #238636; color: white; }
-        .file-label {
-            background: #1f6feb;
-            border: none;
-            color: white;
-            padding: 6px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 13px;
-            display: inline-block;
-        }
+        .file-label { background: #1f6feb; border: none; color: white; padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; display: inline-block; }
         .file-label:hover { background: #388bfd; }
         #file-input { display: none; }
         #reward-chart-mini { background: #0d1117; border-radius: 4px; padding: 4px; width: 100%; height: 60px; }
+        .file-info-text { font-size: 12px; color: #8b949e; word-break: break-all; }
     </style>
 </head>
 <body>
-
 <div id="sidebar">
     <h3>📁 数据加载</h3>
     <label class="file-label" for="file-input">📂 选择 JSON 文件</label>
     <input type="file" id="file-input" accept=".json">
-    <div id="file-info" style="font-size:12px; color:#8b949e; word-break:break-all;">未加载文件</div>
+    <div id="file-info" class="file-info-text">未加载文件</div>
 
     <h3 style="margin-top:8px;">📊 当前步骤</h3>
     <div style="display:flex; gap:8px; align-items:center;">
@@ -108,17 +57,15 @@
     </div>
 
     <h3>📈 奖励曲线</h3>
-    <canvas id="reward-chart-mini"></canvas>
+    <canvas id="reward-chart-mini" width="300" height="60"></canvas>
 
     <div style="margin-top:auto; font-size:11px; color:#30363d; border-top:1px solid #21262d; padding-top:8px;">
-        拖动滑块 ⏪ 回放训练过程
+        🖱 鼠标拖拽旋转 · 滚轮缩放 · 右键平移
     </div>
 </div>
 
 <div id="main">
-    <div id="canvas-wrapper">
-        <canvas id="gameCanvas" width="800" height="800"></canvas>
-    </div>
+    <div id="three-wrapper"></div>
     <div id="controls">
         <button id="btn-play">▶ 播放</button>
         <button id="btn-reset">⏮ 重置</button>
@@ -131,325 +78,447 @@
             <option value="5">5x</option>
             <option value="10">10x</option>
         </select>
-        <div style="margin-left:auto; font-size:12px; color:#8b949e;">拖入文件或点击加载</div>
+        <div style="margin-left:auto; font-size:12px; color:#8b949e;">拖入JSON文件</div>
     </div>
 </div>
 
-<script>
-// ============================================================
-// 核心：数据加载与回放
-// ============================================================
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-const slider = document.getElementById('slider');
-const stepDisplay = document.getElementById('step-display');
-const fileInput = document.getElementById('file-input');
-const fileInfo = document.getElementById('file-info');
+<script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+</script>
 
-let data = [];
-let currentIndex = 0;
-let isPlaying = false;
-let playTimer = null;
-let speed = 1;
+<script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 
-// 获取 canvas 实际尺寸
-function resizeCanvas() {
-    const rect = canvas.parentElement.getBoundingClientRect();
-    const size = Math.min(rect.width, rect.height) * 0.95;
-    canvas.style.width = size + 'px';
-    canvas.style.height = size + 'px';
-}
-window.addEventListener('resize', resizeCanvas);
-setTimeout(resizeCanvas, 100);
+    // --- DOM refs ---
+    const container = document.getElementById('three-wrapper');
+    const fileInput = document.getElementById('file-input');
+    const fileInfo = document.getElementById('file-info');
+    const slider = document.getElementById('slider');
+    const stepDisplay = document.getElementById('step-display');
+    const stepInfo = document.getElementById('step-info');
+    const btnPlay = document.getElementById('btn-play');
+    const btnReset = document.getElementById('btn-reset');
+    const speedSelect = document.getElementById('speed-select');
 
-// 加载 JSON 文件
-fileInput.addEventListener('change', function(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = function(ev) {
-        try {
-            data = JSON.parse(ev.target.result);
-            fileInfo.textContent = `✅ ${file.name} (${data.length} steps)`;
-            if (data.length === 0) return;
-            slider.max = data.length - 1;
-            slider.value = 0;
+    // --- Three.js setup ---
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0d1117);
+
+    const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 5000);
+    camera.position.set(1200, 800, 1200);
+    camera.lookAt(500, 200, 500);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    container.appendChild(renderer.domElement);
+
+    const labelRenderer = new CSS2DRenderer();
+    labelRenderer.setSize(container.clientWidth, container.clientHeight);
+    labelRenderer.domElement.style.position = 'absolute';
+    labelRenderer.domElement.style.top = '0';
+    labelRenderer.domElement.style.left = '0';
+    labelRenderer.domElement.style.pointerEvents = 'none';
+    container.appendChild(labelRenderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(500, 200, 500);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.1;
+    controls.update();
+
+    // --- Lights ---
+    scene.add(new THREE.AmbientLight(0x404060));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+    dirLight.position.set(500, 1000, 500);
+    scene.add(dirLight);
+    const fillLight = new THREE.DirectionalLight(0x88aaff, 0.5);
+    fillLight.position.set(-500, 300, -500);
+    scene.add(fillLight);
+
+    // --- Ground ---
+    const grid = new THREE.GridHelper(1200, 20, 0x30363d, 0x21262d);
+    grid.position.y = 0;
+    scene.add(grid);
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x161b22, transparent: true, opacity: 0.3, side: THREE.DoubleSide });
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(1200, 1200), groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = 0;
+    scene.add(ground);
+
+    // --- Static objects: target, weapon ---
+    const targetGroup = new THREE.Group();
+    scene.add(targetGroup);
+    const weaponGroup = new THREE.Group();
+    scene.add(weaponGroup);
+
+    // target
+    const targetMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(10, 16, 16),
+        new THREE.MeshStandardMaterial({ color: 0xd29922, emissive: 0xd29922, emissiveIntensity: 0.3 })
+    );
+    targetGroup.add(targetMesh);
+    targetGroup.add(new THREE.PointLight(0xd29922, 0.5, 200));
+
+    // weapon
+    const weaponBox = new THREE.Mesh(
+        new THREE.BoxGeometry(30, 30, 30),
+        new THREE.MeshStandardMaterial({ color: 0x1f6feb, emissive: 0x1f6feb, emissiveIntensity: 0.2 })
+    );
+    weaponGroup.add(weaponBox);
+    const gunDot = new THREE.Mesh(
+        new THREE.SphereGeometry(5, 8, 8),
+        new THREE.MeshStandardMaterial({ color: 0xf0883e })
+    );
+    gunDot.position.set(30, 0, 0);
+    weaponGroup.add(gunDot);
+
+    // --- Dynamic objects: UAVs (pre-created, never deleted) ---
+    const MAX_UAVS = 2;
+    const uavGroups = [];
+    const labelDivs = [];
+    const heightDivs = [];
+
+    // We'll create groups with sphere, ring, arrow, labels, and keep them hidden until used.
+    for (let i = 0; i < MAX_UAVS; i++) {
+        const group = new THREE.Group();
+        group.visible = false;
+
+        // sphere
+        const sphere = new THREE.Mesh(
+            new THREE.SphereGeometry(12, 20, 20),
+            new THREE.MeshStandardMaterial({ color: 0x58a6ff, emissive: 0x58a6ff, emissiveIntensity: 0.1 })
+        );
+        group.add(sphere);
+
+        // ring (targeted indicator)
+        const ring = new THREE.Mesh(
+            new THREE.RingGeometry(14, 18, 32),
+            new THREE.MeshBasicMaterial({ color: 0xda3633, side: THREE.DoubleSide, transparent: true, opacity: 0.7 })
+        );
+        ring.rotation.x = Math.PI / 2;
+        ring.visible = false;
+        group.add(ring);
+
+        // arrow helper (velocity)
+        // We'll add later if needed
+
+        // Labels (CSS2D)
+        const labelDiv = document.createElement('div');
+        labelDiv.textContent = `UAV${i}`;
+        labelDiv.style.cssText = 'color:#e6edf3;font-size:12px;font-weight:bold;text-shadow:0 0 8px rgba(0,0,0,0.8);background:rgba(0,0,0,0.5);padding:2px 6px;border-radius:4px;backdrop-filter:blur(2px);';
+        const label = new CSS2DObject(labelDiv);
+        label.position.set(0, 22, 0);
+        group.add(label);
+
+        const heightDiv = document.createElement('div');
+        heightDiv.textContent = '0m';
+        heightDiv.style.cssText = 'color:#8b949e;font-size:10px;background:rgba(0,0,0,0.4);padding:0 4px;border-radius:3px;';
+        const hLabel = new CSS2DObject(heightDiv);
+        hLabel.position.set(0, -16, 0);
+        group.add(hLabel);
+
+        scene.add(group);
+        uavGroups.push(group);
+        labelDivs.push(labelDiv);
+        heightDivs.push(heightDiv);
+    }
+
+    // Pre-create gun line
+    let gunLine = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(1,0,0)]),
+        new THREE.LineBasicMaterial({ color: 0xf0883e, transparent: true, opacity: 0.8 })
+    );
+    gunLine.visible = false;
+    scene.add(gunLine);
+
+    // --- Update functions (no creation/destruction) ---
+    function updateUAVs(uavData) {
+        if (!uavData) uavData = [];
+        for (let i = 0; i < MAX_UAVS; i++) {
+            const group = uavGroups[i];
+            if (i < uavData.length && uavData[i]) {
+                const u = uavData[i];
+                const isDecoy = (i === 0);
+                const color = isDecoy ? 0x58a6ff : 0xf0883e;
+
+                group.visible = true;
+                // Update position
+                const pos = u.position || [0, 0, 0];
+                group.position.set(pos[0], pos[2], pos[1]);
+
+                // Update sphere color
+                const sphere = group.children[0];
+                sphere.material.color.setHex(color);
+                sphere.material.emissive.setHex(color);
+
+                // Update ring (targeted)
+                const ring = group.children[1];
+                ring.visible = !!u.is_targeted;
+
+                // Update labels
+                labelDivs[i].textContent = `UAV${i} ${isDecoy ? '🛡️' : '⚡'}`;
+                heightDivs[i].textContent = `${pos[2].toFixed(0)}m`;
+
+                // Update arrow (remove old and add new)
+                // We'll remove any existing arrow helper and add a new one
+                // Find and remove arrow if exists
+                for (let j = group.children.length - 1; j >= 0; j--) {
+                    if (group.children[j].type === 'ArrowHelper') {
+                        group.remove(group.children[j]);
+                    }
+                }
+                if (u.velocity && (Math.abs(u.velocity[0]) > 0.1 || Math.abs(u.velocity[1]) > 0.1 || Math.abs(u.velocity[2]) > 0.1)) {
+                    const dir = new THREE.Vector3(u.velocity[0], u.velocity[2], u.velocity[1]).normalize();
+                    const arrow = new THREE.ArrowHelper(dir, new THREE.Vector3(0, 0, 0), 30, color, 8, 5);
+                    group.add(arrow);
+                }
+            } else {
+                group.visible = false;
+            }
+        }
+    }
+
+    function updateWeapon(weaponData) {
+        if (!weaponData) {
+            gunLine.visible = false;
+            weaponGroup.position.set(0, 0, 0);
+            return;
+        }
+        const pos = weaponData.position || [0, 0, 0];
+        weaponGroup.position.set(pos[0], pos[2], pos[1]);
+
+        // Update gun line
+        if (weaponData.top_project_position) {
+            const start = new THREE.Vector3(pos[0], pos[2], pos[1]);
+            const end = new THREE.Vector3(
+                weaponData.top_project_position[0],
+                weaponData.top_project_position[2],
+                weaponData.top_project_position[1]
+            );
+            const positions = gunLine.geometry.attributes.position.array;
+            positions[0] = start.x; positions[1] = start.y; positions[2] = start.z;
+            positions[3] = end.x; positions[4] = end.y; positions[5] = end.z;
+            gunLine.geometry.attributes.position.needsUpdate = true;
+            gunLine.visible = true;
+        } else {
+            gunLine.visible = false;
+        }
+    }
+
+    function updateTarget(targetPos) {
+        if (!targetPos) {
+            targetGroup.position.set(0, 0, 0);
+            return;
+        }
+        targetGroup.position.set(targetPos[0], targetPos[2], targetPos[1]);
+    }
+
+    // --- Render step ---
+    let currentData = [];
+    let currentIndex = 0;
+
+    function renderStep(index) {
+        if (!currentData || currentData.length === 0 || index < 0 || index >= currentData.length) return;
+        const d = currentData[index];
+        currentIndex = index;
+
+        updateUAVs(d.uavs);
+        updateWeapon(d.weapon);
+        updateTarget(d.target);
+
+        // UI updates
+        stepDisplay.textContent = index;
+        slider.value = index;
+        stepInfo.textContent = `步数: ${index} / ${currentData.length - 1}`;
+
+        const wState = d.weapon?.state ?? 0;
+        const stateMap = ['NORMAL', 'TUNING', 'CAPTURE', 'FIRE', 'RELOAD'];
+        const badgeMap = ['badge-normal', 'badge-tune', 'badge-capture', 'badge-fire', 'badge-normal'];
+        document.getElementById('s-weapon').innerHTML = `<span class="badge ${badgeMap[wState] || 'badge-normal'}">${stateMap[wState] || 'UNKNOWN'}</span>`;
+        const targetIdx = d.uavs?.findIndex(u => u.is_targeted === true) ?? -1;
+        document.getElementById('s-target').textContent = targetIdx >= 0 ? `UAV${targetIdx}` : 'None';
+        document.getElementById('s-tuning').textContent = (d.weapon?.tuning_time ?? 0).toFixed(1) + 's';
+        const r = d.reward || [0, 0];
+        document.getElementById('s-r0').textContent = r[0]?.toFixed(3) ?? '0';
+        document.getElementById('s-r1').textContent = r[1]?.toFixed(3) ?? '0';
+        const isSuccess = d.reward && (d.reward[0] > 50 || d.reward[1] > 50);
+        document.getElementById('s-success').textContent = isSuccess ? '✅ 成功' : '⏳ 进行中';
+        document.getElementById('s-success').style.color = isSuccess ? '#2ea043' : '#8b949e';
+
+        drawRewardChart(currentData);
+    }
+
+    function drawRewardChart(data) {
+        const c = document.getElementById('reward-chart-mini');
+        if (!c) return;
+        const ctx = c.getContext('2d');
+        const W = c.width, H = c.height;
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = '#0d1117';
+        ctx.fillRect(0, 0, W, H);
+        if (!data || data.length < 2) return;
+        const range = Math.min(500, data.length);
+        const start = Math.max(0, data.length - range);
+        const v0 = [], v1 = [];
+        for (let i = start; i < data.length; i++) {
+            const r = data[i].reward || [0, 0];
+            v0.push(r[0] || 0);
+            v1.push(r[1] || 0);
+        }
+        if (v0.length < 2) return;
+        const maxV = Math.max(2, ...v0, ...v1);
+        ctx.strokeStyle = '#58a6ff';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        for (let i=0; i<v0.length; i++) {
+            const x = (i / (v0.length-1)) * W;
+            const y = H/2 - (v0[i] / maxV) * (H/2 - 2);
+            i===0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        ctx.strokeStyle = '#f0883e';
+        ctx.beginPath();
+        for (let i=0; i<v1.length; i++) {
+            const x = (i / (v1.length-1)) * W;
+            const y = H/2 - (v1[i] / maxV) * (H/2 - 2);
+            i===0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        ctx.fillStyle = '#8b949e';
+        ctx.font = '8px sans-serif';
+        ctx.fillText('蓝=UAV0 橙=UAV1', 4, 10);
+    }
+
+    // --- File loading ---
+    fileInput.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(ev) {
+            try {
+                const data = JSON.parse(ev.target.result);
+                currentData = data;
+                fileInfo.textContent = `✅ ${file.name} (${data.length} steps)`;
+                if (data.length === 0) return;
+                slider.max = data.length - 1;
+                slider.value = 0;
+                currentIndex = 0;
+                renderStep(0);
+            } catch (err) {
+                alert('解析 JSON 失败: ' + err.message);
+            }
+        };
+        reader.readAsText(file);
+    });
+
+    document.addEventListener('dragover', e => e.preventDefault());
+    document.addEventListener('drop', e => {
+        e.preventDefault();
+        const file = e.dataTransfer.files[0];
+        if (file && file.name.endsWith('.json')) {
+            fileInput.files = e.dataTransfer.files;
+            fileInput.dispatchEvent(new Event('change'));
+        }
+    });
+
+    // --- Slider control ---
+    slider.addEventListener('input', function() {
+        if (isPlaying) stopPlay();
+        const idx = parseInt(this.value);
+        if (currentData && idx < currentData.length) {
+            renderStep(idx);
+        }
+    });
+
+    // --- Playback ---
+    let isPlaying = false;
+    let playTimer = null;
+    let speed = 1;
+
+    function startPlay() {
+        if (!currentData || currentData.length === 0) return;
+        if (currentIndex >= currentData.length - 1) {
             currentIndex = 0;
             renderStep(0);
-            drawRewardChart(data);
-        } catch (err) {
-            alert('解析 JSON 失败: ' + err.message);
         }
-    };
-    reader.readAsText(file);
-});
-
-// 渲染指定步骤
-function renderStep(index) {
-    if (!data || data.length === 0 || index < 0 || index >= data.length) return;
-    const d = data[index];
-    currentIndex = index;
-    stepDisplay.textContent = index;
-    slider.value = index;
-
-    // 更新画布
-    drawCanvas(d);
-
-    // 更新状态面板
-    const wState = d.weapon?.state ?? 0;
-    const stateMap = ['NORMAL', 'TUNING', 'CAPTURE', 'FIRE', 'RELOAD'];
-    const badgeMap = ['badge-normal', 'badge-tune', 'badge-capture', 'badge-fire', 'badge-normal'];
-    document.getElementById('s-weapon').innerHTML = `<span class="badge ${badgeMap[wState] || 'badge-normal'}">${stateMap[wState] || 'UNKNOWN'}</span>`;
-
-    const targetIdx = d.uavs?.findIndex(u => u.is_targeted === true) ?? -1;
-    document.getElementById('s-target').textContent = targetIdx >= 0 ? `UAV${targetIdx}` : 'None';
-    document.getElementById('s-tuning').textContent = (d.weapon?.tuning_time ?? 0).toFixed(1) + 's';
-
-    const r = d.reward || [0, 0];
-    document.getElementById('s-r0').textContent = r[0]?.toFixed(3) ?? '0';
-    document.getElementById('s-r1').textContent = r[1]?.toFixed(3) ?? '0';
-
-    const isSuccess = d.reward && (d.reward[0] > 50 || d.reward[1] > 50);
-    document.getElementById('s-success').textContent = isSuccess ? '✅ 成功' : '⏳ 进行中';
-    document.getElementById('s-success').style.color = isSuccess ? '#2ea043' : '#8b949e';
-}
-
-// 绘制 Canvas（2D 物理视图 + 炮口方向）
-function drawCanvas(d) {
-    const w = 800, h = 800;
-    ctx.clearRect(0, 0, w, h);
-
-    // 背景与网格
-    ctx.fillStyle = '#161b22';
-    ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = '#21262d';
-    ctx.lineWidth = 0.5;
-    for (let i = 0; i <= 10; i++) {
-        const x = 40 + i * 72;
-        ctx.beginPath(); ctx.moveTo(x, 40); ctx.lineTo(x, 760); ctx.stroke();
-        const y = 40 + i * 72;
-        ctx.beginPath(); ctx.moveTo(40, y); ctx.lineTo(760, y); ctx.stroke();
+        isPlaying = true;
+        btnPlay.textContent = '⏸ 暂停';
+        speed = parseFloat(speedSelect.value);
+        const interval = Math.max(20, 100 / speed);
+        if (playTimer) clearInterval(playTimer);
+        playTimer = setInterval(() => {
+            if (currentIndex < currentData.length - 1) {
+                currentIndex++;
+                renderStep(currentIndex);
+            } else {
+                stopPlay();
+                // Reset to beginning
+                if (currentData && currentData.length > 0) {
+                    currentIndex = 0;
+                    renderStep(0);
+                }
+            }
+        }, interval);
     }
 
-    function toX(px) { return 40 + (px / 1000) * 720; }
-    function toY(py) { return 760 - (py / 1000) * 720; }
-
-    // 目标点
-    if (d.target) {
-        const tx = toX(d.target[0]), ty = toY(d.target[1]);
-        ctx.beginPath();
-        ctx.arc(tx, ty, 12, 0, 2*Math.PI);
-        ctx.fillStyle = '#d29922';
-        ctx.shadowColor = '#d29922'; ctx.shadowBlur = 20;
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = '#e6edf3';
-        ctx.font = '12px sans-serif';
-        ctx.fillText('🎯', tx - 8, ty - 18);
-    }
-
-    // 武器位置 & 炮口方向
-    if (d.weapon) {
-        const wx = toX(d.weapon.position[0]), wy = toY(d.weapon.position[1]);
-        ctx.beginPath();
-        ctx.arc(wx, wy, 16, 0, 2*Math.PI);
-        ctx.fillStyle = '#1f6feb';
-        ctx.fill();
-        ctx.fillStyle = '#e6edf3';
-        ctx.font = '11px sans-serif';
-        ctx.fillText('⚔️', wx - 8, wy - 22);
-
-        // 炮口指向线（调弦方向）
-        if (d.weapon.top_project_position) {
-            const gx = toX(d.weapon.top_project_position[0]);
-            const gy = toY(d.weapon.top_project_position[1]);
-            ctx.beginPath();
-            ctx.moveTo(wx, wy);
-            ctx.lineTo(gx, gy);
-            ctx.strokeStyle = '#f0883e';
-            ctx.lineWidth = 3;
-            ctx.setLineDash([8, 6]);
-            ctx.stroke();
-            ctx.setLineDash([]);
-            // 炮口末端小圆
-            ctx.beginPath();
-            ctx.arc(gx, gy, 5, 0, 2*Math.PI);
-            ctx.fillStyle = '#f0883e';
-            ctx.fill();
+    function stopPlay() {
+        isPlaying = false;
+        btnPlay.textContent = '▶ 播放';
+        if (playTimer) {
+            clearInterval(playTimer);
+            playTimer = null;
         }
-        // 武器标签
-        ctx.fillStyle = '#8b949e'; ctx.font = '10px sans-serif';
-        ctx.fillText('武器', wx - 14, wy + 34);
     }
 
-    // 无人机
-    if (d.uavs) {
-        d.uavs.forEach((u, i) => {
-            const ux = toX(u.position[0]), uy = toY(u.position[1]);
-            const isDecoy = (i === 0);
-            const color = isDecoy ? '#58a6ff' : '#f0883e';
+    btnPlay.addEventListener('click', () => {
+        isPlaying ? stopPlay() : startPlay();
+    });
 
-            // 机身
-            ctx.shadowColor = color; ctx.shadowBlur = 15;
-            ctx.beginPath();
-            ctx.arc(ux, uy, 12, 0, 2*Math.PI);
-            ctx.fillStyle = color;
-            ctx.fill();
-            ctx.shadowBlur = 0;
-
-            // 被瞄准光环
-            if (u.is_targeted) {
-                ctx.beginPath();
-                ctx.arc(ux, uy, 18, 0, 2*Math.PI);
-                ctx.strokeStyle = '#da3633';
-                ctx.lineWidth = 2;
-                ctx.setLineDash([4, 6]);
-                ctx.stroke();
-                ctx.setLineDash([]);
-            }
-            // 速度箭头
-            if (u.velocity && (Math.abs(u.velocity[0]) > 0.1 || Math.abs(u.velocity[1]) > 0.1)) {
-                const scale = 0.3;
-                ctx.beginPath();
-                ctx.moveTo(ux, uy);
-                ctx.lineTo(ux + u.velocity[0]*scale, uy - u.velocity[1]*scale);
-                ctx.strokeStyle = color;
-                ctx.lineWidth = 2;
-                ctx.stroke();
-            }
-            // 标签
-            ctx.fillStyle = '#e6edf3';
-            ctx.font = 'bold 11px sans-serif';
-            ctx.fillText(`UAV${i} ${isDecoy ? '🛡️' : '⚡'}`, ux - 20, uy - 20);
-            // 距离信息
-            ctx.fillStyle = '#8b949e'; ctx.font = '9px sans-serif';
-            if (u.dist_to_weapon !== undefined) {
-                ctx.fillText(`${u.dist_to_weapon.toFixed(0)}m`, ux - 16, uy + 26);
-            }
-        });
-    }
-
-    // 图例
-    ctx.fillStyle = '#8b949e'; ctx.font = '10px sans-serif';
-    ctx.fillText('🟦 诱饵', 50, 30);
-    ctx.fillText('🟧 刺客', 150, 30);
-    ctx.fillText('🟡 目标点', 250, 30);
-    ctx.fillText('🟠 炮口指向', 350, 30);
-    ctx.fillStyle = '#30363d';
-    ctx.fillText(`步: ${currentIndex} / ${data?.length || 0}`, 700, 30);
-}
-
-// 奖励曲线
-function drawRewardChart(data) {
-    const c = document.getElementById('reward-chart-mini');
-    const ctxc = c.getContext('2d');
-    const W = c.width, H = c.height;
-    ctxc.clearRect(0, 0, W, H);
-    ctxc.fillStyle = '#0d1117';
-    ctxc.fillRect(0, 0, W, H);
-
-    if (!data || data.length < 2) return;
-    const step = 1;
-    const range = Math.min(500, data.length);
-    const start = Math.max(0, data.length - range);
-    const vals0 = [], vals1 = [];
-    for (let i = start; i < data.length; i += step) {
-        const r = data[i].reward || [0, 0];
-        vals0.push(r[0] || 0);
-        vals1.push(r[1] || 0);
-    }
-    if (vals0.length < 2) return;
-    const maxV = Math.max(2, ...vals0, ...vals1);
-
-    ctxc.strokeStyle = '#58a6ff'; ctxc.lineWidth = 1.5;
-    ctxc.beginPath();
-    for (let i=0; i<vals0.length; i++) {
-        const x = (i / (vals0.length-1)) * W;
-        const y = H/2 - (vals0[i] / maxV) * (H/2 - 2);
-        i===0 ? ctxc.moveTo(x, y) : ctxc.lineTo(x, y);
-    }
-    ctxc.stroke();
-
-    ctxc.strokeStyle = '#f0883e'; ctxc.lineWidth = 1.5;
-    ctxc.beginPath();
-    for (let i=0; i<vals1.length; i++) {
-        const x = (i / (vals1.length-1)) * W;
-        const y = H/2 - (vals1[i] / maxV) * (H/2 - 2);
-        i===0 ? ctxc.moveTo(x, y) : ctxc.lineTo(x, y);
-    }
-    ctxc.stroke();
-
-    ctxc.fillStyle = '#8b949e'; ctxc.font = '8px sans-serif';
-    ctxc.fillText('蓝=UAV0 橙=UAV1', 4, 10);
-}
-
-// 滑块控制
-slider.addEventListener('input', function() {
-    if (isPlaying) { stopPlay(); }
-    renderStep(parseInt(this.value));
-});
-
-// 播放控制
-document.getElementById('btn-play').addEventListener('click', function() {
-    if (isPlaying) { stopPlay(); } else { startPlay(); }
-});
-
-function startPlay() {
-    if (!data || data.length === 0) return;
-    if (currentIndex >= data.length - 1) { currentIndex = 0; slider.value = 0; }
-    isPlaying = true;
-    document.getElementById('btn-play').textContent = '⏸ 暂停';
-    speed = parseFloat(document.getElementById('speed-select').value);
-    const interval = 100 / speed;
-    if (playTimer) clearInterval(playTimer);
-    playTimer = setInterval(() => {
-        if (currentIndex < data.length - 1) {
-            currentIndex++;
-            renderStep(currentIndex);
-        } else {
-            stopPlay();
-        }
-    }, interval);
-}
-
-function stopPlay() {
-    isPlaying = false;
-    document.getElementById('btn-play').textContent = '▶ 播放';
-    if (playTimer) { clearInterval(playTimer); playTimer = null; }
-}
-
-document.getElementById('btn-reset').addEventListener('click', function() {
-    stopPlay();
-    if (data && data.length > 0) {
-        currentIndex = 0;
-        renderStep(0);
-    }
-});
-
-document.getElementById('speed-select').addEventListener('change', function() {
-    speed = parseFloat(this.value);
-    if (isPlaying) {
-        // 重启播放器以应用新速度
-        const idx = currentIndex;
+    btnReset.addEventListener('click', () => {
         stopPlay();
-        currentIndex = idx;
-        startPlay();
-    }
-});
+        if (currentData && currentData.length > 0) {
+            currentIndex = 0;
+            renderStep(0);
+        }
+    });
 
-// 拖拽上传
-document.addEventListener('dragover', e => e.preventDefault());
-document.addEventListener('drop', e => {
-    e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    if (file && file.name.endsWith('.json')) {
-        fileInput.files = e.dataTransfer.files;
-        fileInput.dispatchEvent(new Event('change'));
-    }
-});
+    speedSelect.addEventListener('change', () => {
+        speed = parseFloat(speedSelect.value);
+        if (isPlaying) {
+            const idx = currentIndex;
+            stopPlay();
+            currentIndex = idx;
+            startPlay();
+        }
+    });
 
-// 初始化
-resizeCanvas();
+    // --- Resize & loop ---
+    window.addEventListener('resize', () => {
+        const w = container.clientWidth;
+        const h = container.clientHeight;
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+        renderer.setSize(w, h);
+        labelRenderer.setSize(w, h);
+    });
+
+    function animate() {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+        labelRenderer.render(scene, camera);
+    }
+    animate();
+
+    console.log('3D可视化启动（预创建模式，无重影）');
 </script>
 </body>
 </html>
