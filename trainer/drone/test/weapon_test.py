@@ -4,11 +4,11 @@ import numpy as np
 
 pages = Path(__file__).parent.parent / "pages"
 sys.path.append(str(pages))
-from onpolicy.envs.drone.maps.map import Map
-from onpolicy.envs.drone.pages.drone_sim import load_episode_path, load_target_weapon
-from onpolicy.envs.drone.weapons.interfaces.environment_interface import EnvironmentInterface
+from trainer.drone.maps.map import Map
+from trainer.drone.pages.drone_sim import load_episode_path, load_target_weapon
+from trainer.drone.weapons.interfaces.environment_interface import EnvironmentInterface
 from onpolicy.scripts.train.train_drone import parse_args
-from onpolicy.envs.drone.mul_uav_env import MultiUavEnv
+from trainer.drone.mul_uav_env import MultiUavEnv
 from onpolicy.config import get_config
 import configparser
 

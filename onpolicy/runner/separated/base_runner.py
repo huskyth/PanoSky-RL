@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from tensorboardX import SummaryWriter
 
-from onpolicy.utils.separated_buffer import SeparatedReplayBuffer
+from trainer.utils.separated_buffer import SeparatedReplayBuffer
 
 
 def _t2n(x):

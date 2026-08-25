@@ -1,4 +1,4 @@
-from onpolicy.envs.drone.weapons.entries.phalanx.components.rader import *
+from trainer.drone.weapons.entries.phalanx.components.rader import *
 
 
 class SearchRader(Rader):

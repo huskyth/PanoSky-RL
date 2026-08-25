@@ -1,5 +1,5 @@
-from onpolicy.envs.drone.weapons.entries.phalanx.components.track_rader.track_rader_enum import *
-from onpolicy.utils.format_logger import AppLogger
+from trainer.drone.weapons.entries.phalanx.components.track_rader.track_rader_enum import *
+from trainer.utils.format_logger import AppLogger
 
 logger = AppLogger().get_logger()
 

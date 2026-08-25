@@ -1,6 +1,6 @@
 from .phalanx_components_config_factory import PhalanxComponentsConfigFactory, \
     PhalanxComponentConfigEnum
-from onpolicy.utils.object_tool import *
+from trainer.utils.object_tool import *
 
 
 class PhalanxConfig:

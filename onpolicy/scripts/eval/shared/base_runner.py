@@ -3,9 +3,9 @@ import os
 import numpy as np
 import torch
 from tensorboardX import SummaryWriter
-from onpolicy.utils.shared_buffer import SharedReplayBuffer
+from trainer.utils.shared_buffer import SharedReplayBuffer
 
-from onpolicy.utils.format_logger import AppLogger
+from trainer.utils.format_logger import AppLogger
 
 logger = AppLogger().get_logger()
 

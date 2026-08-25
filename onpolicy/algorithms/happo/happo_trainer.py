@@ -1,10 +1,10 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from onpolicy.utils.util import get_gard_norm, huber_loss, mse_loss
+from trainer.utils.util import get_gard_norm, huber_loss, mse_loss
 from onpolicy.algorithms.utils.popart_hatrpo import PopArt
 from onpolicy.algorithms.utils.util import check
-from onpolicy.utils.valuenorm import ValueNorm
+from trainer.utils.valuenorm import ValueNorm
 
 class HAPPO():
     """

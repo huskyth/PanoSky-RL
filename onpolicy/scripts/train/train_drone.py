@@ -9,7 +9,7 @@ import numpy as np
 from pathlib import Path
 import torch
 from onpolicy.config import get_config
-from onpolicy.envs.drone.uav_env import uav_env, logger
+from trainer.drone.uav_env import uav_env, logger
 
 """Train script for MPEs."""
 

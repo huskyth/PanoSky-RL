@@ -8,13 +8,14 @@ import os
 import numpy as np
 from gym import spaces
 
-from ..utils.format_logger import AppLogger, _green_log_str
+
 from .weapons.entries.uav.uav_enum import UAVState, AttackState
 from .maps.map import Map
-from onpolicy.utils.util import compute_distance
+from trainer.utils.util import compute_distance
 from .uav_meta_info import TrainUAV
 from pathlib import Path
 from .weapons.interfaces.environment_interface import EnvironmentInterface
+from trainer.utils.format_logger import AppLogger
 
 warnings.filterwarnings('ignore')
 logger = AppLogger().get_logger()

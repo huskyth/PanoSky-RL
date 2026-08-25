@@ -1,4 +1,4 @@
-from onpolicy.envs.drone.maps.map import Map
+from trainer.drone.maps.map import Map
 import json
 
 

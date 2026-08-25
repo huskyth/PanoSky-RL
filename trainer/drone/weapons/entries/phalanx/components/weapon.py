@@ -1,10 +1,10 @@
-from onpolicy.envs.drone.weapons.entries.abstract_entry import *
-from onpolicy.utils.random_event import *
-from onpolicy.envs.drone.weapons.entries.config.global_config import *
-from onpolicy.envs.drone.weapons.entries.uav.uav_enum import *
+from trainer.drone.weapons.entries.abstract_entry import *
+from trainer.utils.random_event import *
+from trainer.drone.weapons.entries.config.global_config import *
+from trainer.drone.weapons.entries.uav.uav_enum import *
 import os
-from onpolicy.utils.format_logger import AppLogger
-from onpolicy.utils.util import compute_distance
+from trainer.utils.format_logger import AppLogger
+from trainer.utils.util import compute_distance
 
 logger = AppLogger().get_logger()
 

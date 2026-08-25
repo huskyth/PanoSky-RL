@@ -11,9 +11,9 @@ import gymnasium as gym
 # ==========================================
 # 修改：导入你自己的环境
 # ==========================================
-# 假设你的 MultiUavEnv 在 onpolicy.envs.drone 包下
+# 假设你的 MultiUavEnv 在 trainer.drone 包下
 # 根据你的实际路径修改这行
-from drone.mul_uav_env import MultiUavEnv  # 如果你的环境在 onpolicy.envs.drone 包下
+from drone.mul_uav_env import MultiUavEnv  # 如果你的环境在 trainer.drone 包下
 
 
 # 或者直接传入 cf 对象

@@ -1,5 +1,5 @@
-from onpolicy.envs.drone.maps.map import Map
-from onpolicy.utils.util import compute_distance
+from trainer.drone.maps.map import Map
+from trainer.utils.util import compute_distance
 
 mountain = r'C:\Users\qq162\Desktop\PanoSky-RL\onpolicy\envs\drone\maps\dem_data\N32E119.npz'
 mmap = Map(mountain, 30, 3.05)

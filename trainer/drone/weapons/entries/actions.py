@@ -1,11 +1,11 @@
-from onpolicy.envs.drone.weapons.factory.config_factory import ConfigFactory
-from onpolicy.envs.drone.weapons.factory.phalanx_factory import PhalanxFactory
-from onpolicy.envs.drone.weapons.factory.uav_factory import UAVFactory
-from onpolicy.envs.drone.weapons.entries.phalanx.components.track_rader.track_rader_state import *
-from onpolicy.envs.drone.weapons.entries.config.global_config import *
-from onpolicy.utils.format_logger import _green_log_str
-from onpolicy.utils.math_tool import distance_of_2_point, length_of_vector
-from onpolicy.utils.util import compute_distance
+from trainer.drone.weapons.factory.config_factory import ConfigFactory
+from trainer.drone.weapons.factory.phalanx_factory import PhalanxFactory
+from trainer.drone.weapons.factory.uav_factory import UAVFactory
+from trainer.drone.weapons.entries.phalanx.components.track_rader.track_rader_state import *
+from trainer.drone.weapons.entries.config.global_config import *
+from trainer.utils.format_logger import _green_log_str
+from trainer.utils.math_tool import distance_of_2_point, length_of_vector
+from trainer.utils.util import compute_distance
 
 
 class GameManager:

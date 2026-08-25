@@ -1,6 +1,6 @@
 import os
 
-from onpolicy.envs.drone.weapons.factory.action_factory import *
+from trainer.drone.weapons.factory.action_factory import *
 
 
 class Game:

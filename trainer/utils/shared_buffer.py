@@ -1,8 +1,8 @@
 import torch
 import numpy as np
 import torch.nn.functional as F
-from onpolicy.utils.util import get_shape_from_obs_space, get_shape_from_act_space
-from onpolicy.utils.format_logger import AppLogger
+from trainer.utils.util import get_shape_from_obs_space, get_shape_from_act_space
+from trainer.utils.format_logger import AppLogger
 
 logger = AppLogger().get_logger()
 

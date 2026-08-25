@@ -1,4 +1,4 @@
-from onpolicy.utils.math_tool import *
+from trainer.utils.math_tool import *
 
 
 def single_probability_event(p):

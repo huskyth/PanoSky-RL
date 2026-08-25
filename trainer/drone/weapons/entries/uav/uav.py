@@ -1,7 +1,7 @@
-from onpolicy.envs.drone.weapons.entries.abstract_entry import AbstractEntry, logger
-from onpolicy.envs.drone.weapons.entries.config.global_config import *
-from onpolicy.utils.math_tool import *
-from onpolicy.envs.drone.weapons.entries.uav.uav_enum import *
+from trainer.drone.weapons.entries.abstract_entry import AbstractEntry, logger
+from trainer.drone.weapons.entries.config.global_config import *
+from trainer.utils.math_tool import *
+from trainer.drone.weapons.entries.uav.uav_enum import *
 
 
 class UAV(AbstractEntry):
@@ -77,5 +77,5 @@ class UAV(AbstractEntry):
         '''
         蕴含大小信息
         '''
-        from onpolicy.utils.math_tool import scalar_mul_vector
+        from trainer.utils.math_tool import scalar_mul_vector
         return scalar_mul_vector(self.velocity, self.velocity_direction)

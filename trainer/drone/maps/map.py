@@ -4,9 +4,11 @@ import math
 import matplotlib.pyplot as plt
 import warnings
 
+from trainer.utils.format_logger import AppLogger
+
 warnings.filterwarnings('ignore')
 
-from onpolicy.utils.format_logger import AppLogger
+
 
 logger = AppLogger().get_logger()
 

@@ -3,8 +3,8 @@ import json
 import os
 import time
 
-from onpolicy.envs.drone.pages.mountain_add import write_mdata_to_file
-from onpolicy.utils.util import compute_distance
+from trainer.drone.pages.mountain_add import write_mdata_to_file
+from trainer.utils.util import compute_distance
 from weapon_target import write_data_to_file
 
 # ===================== 配置参数 =====================

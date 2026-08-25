@@ -2,7 +2,7 @@ from pathlib import Path
 import sys
 import numpy as np
 from onpolicy.scripts.train.train_drone import parse_args
-from onpolicy.envs.drone.mul_uav_env import MultiUavEnv
+from trainer.drone.mul_uav_env import MultiUavEnv
 from onpolicy.config import get_config
 import configparser
 

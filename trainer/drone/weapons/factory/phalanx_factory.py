@@ -1,5 +1,5 @@
-from onpolicy.envs.drone.weapons.entries.phalanx.phalanx import Phalanx
-from onpolicy.envs.drone.weapons.factory.config_factory import ConfigFactory, ConfigEnum
+from trainer.drone.weapons.entries.phalanx.phalanx import Phalanx
+from trainer.drone.weapons.factory.config_factory import ConfigFactory, ConfigEnum
 
 
 class PhalanxFactory:

@@ -1,4 +1,4 @@
-from onpolicy.envs.drone.weapons.entries.actions import *
+from trainer.drone.weapons.entries.actions import *
 
 
 class ActionEnum(Enum):

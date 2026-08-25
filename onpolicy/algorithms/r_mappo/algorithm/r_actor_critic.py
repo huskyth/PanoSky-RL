@@ -6,7 +6,7 @@ from onpolicy.algorithms.utils.mlp import MLPBase
 from onpolicy.algorithms.utils.rnn import RNNLayer
 from onpolicy.algorithms.utils.act import ACTLayer
 from onpolicy.algorithms.utils.popart import PopArt
-from onpolicy.utils.util import get_shape_from_obs_space
+from trainer.utils.util import get_shape_from_obs_space
 
 
 class R_Actor(nn.Module):

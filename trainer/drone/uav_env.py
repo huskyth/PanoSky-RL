@@ -1,4 +1,4 @@
-from onpolicy.envs.drone.mul_uav_env import MultiUavEnv, logger
+from trainer.drone.mul_uav_env import MultiUavEnv, logger
 import configparser
 from pathlib import Path
 

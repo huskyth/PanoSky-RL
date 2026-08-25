@@ -4,7 +4,7 @@ Modified trainer OpenAI Baselines code to work with multi-agent envs
 import numpy as np
 from multiprocessing import Process, Pipe
 from abc import ABC, abstractmethod
-from onpolicy.utils.util import tile_images
+from trainer.utils.util import tile_images
 
 
 class CloudpickleWrapper(object):
