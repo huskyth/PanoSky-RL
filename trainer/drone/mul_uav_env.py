@@ -448,11 +448,26 @@ class MultiUavEnv:
 
     def _record_step_data(self, action):
         """
-        记录每步数据到 JSON，供可视化使用
-        所有实体使用 position: [x, y, z] 格式
+        记录每步数据到 JSON，坐标缩放到合理范围
         """
         if not self.is_debug:
             return
+
+        # ---- 0. 定义缩放参数 ----
+        # 把坐标映射到 [0, 500] 范围内
+        # 如果数据在 0~10000，缩放因子 20 后变成 0~500
+        SCALE_FACTOR = 20.0
+        # 或者你指定一个基准点（比如目标位置）作为原点
+        REFERENCE_POINT = self.target  # 以目标为原点
+
+        def scale_pos(pos):
+            """把坐标缩放到合理范围"""
+            # 以基准点为中心，除以缩放因子
+            return [
+                (pos[0] - REFERENCE_POINT[0]) / SCALE_FACTOR,
+                (pos[1] - REFERENCE_POINT[1]) / SCALE_FACTOR,
+                (pos[2] - REFERENCE_POINT[2]) / SCALE_FACTOR
+            ]
 
         # ---- 1. 获取武器状态 ----
         weapon_state = 0
@@ -477,10 +492,9 @@ class MultiUavEnv:
                 to_target = np.array([50, 0, 0])
             aim_point = (np.array(self.weapon) + to_target).tolist()
 
-        # ---- 2. 构造无人机数据（使用 position 数组） ----
+        # ---- 2. 构造无人机数据（使用 position 数组，坐标缩放） ----
         uavs_data = []
         for i, uav in enumerate(self.raw_uavs):
-            # 速度转换为 Python 列表
             vel = uav.velocity
             if hasattr(vel, 'tolist'):
                 vel = vel.tolist()
@@ -491,13 +505,14 @@ class MultiUavEnv:
             elif not isinstance(vel, list):
                 vel = list(vel)
 
+            # 原始位置
+            raw_pos = [float(uav.position[0]), float(uav.position[1]), float(uav.position[2])]
+            # 缩放后的位置
+            scaled_pos = scale_pos(raw_pos)
+
             uavs_data.append({
                 "id": f"UAV-{i:03d}",
-                "position": [
-                    float(uav.position[0]),
-                    float(uav.position[1]),
-                    float(uav.position[2])
-                ],
+                "position": scaled_pos,
                 "velocity": vel,
                 "speed": float(np.linalg.norm(uav.velocity)),
                 "battery": 100,
@@ -505,39 +520,43 @@ class MultiUavEnv:
                 "is_targeted": (self._get_game_target_idx() == i),
             })
 
-        # ---- 3. 构造武器数据（使用 position 数组） ----
+        # ---- 3. 构造武器数据（坐标缩放） ----
+        raw_weapon = [float(self.weapon[0]), float(self.weapon[1]), float(self.weapon[2])]
+        scaled_weapon = scale_pos(raw_weapon)
+        # 瞄准点也要缩放
+        scaled_aim = [
+            (aim_point[0] - REFERENCE_POINT[0]) / SCALE_FACTOR,
+            (aim_point[1] - REFERENCE_POINT[1]) / SCALE_FACTOR,
+            (aim_point[2] - REFERENCE_POINT[2]) / SCALE_FACTOR
+        ]
+
         weapon_data = {
             "id": "WPN-001",
             "entityType": "weapon",
-            "position": [
-                float(self.weapon[0]),
-                float(self.weapon[1]),
-                float(self.weapon[2])
-            ],
+            "position": scaled_weapon,
             "state": weapon_state,
             "tuning_time": float(tuning_time),
-            "aim_x": float(aim_point[0]),
-            "aim_y": float(aim_point[1]),
-            "aim_z": float(aim_point[2]),
-            "range": float(self.weapon_fire_radius),
+            "aim_x": scaled_aim[0],
+            "aim_y": scaled_aim[1],
+            "aim_z": scaled_aim[2],
+            "range": float(self.weapon_fire_radius) / SCALE_FACTOR,  # 范围也缩放
             "ammo": 1000
         }
 
-        # ---- 4. 构造目标数据（使用 position 数组） ----
+        # ---- 4. 构造目标数据（坐标缩放） ----
+        raw_target = [float(self.target[0]), float(self.target[1]), float(self.target[2])]
+        scaled_target = scale_pos(raw_target)
+
         target_data = {
             "id": "TGT-001",
             "entityType": "target",
-            "position": [
-                float(self.target[0]),
-                float(self.target[1]),
-                float(self.target[2])
-            ],
+            "position": scaled_target,
             "threatLevel": "高",
             "targetType": "雷达站",
             "threatRange": 50
         }
 
-        # ---- 5. 获取子弹数据 ----
+        # ---- 5. 获取子弹数据（坐标缩放） ----
         bullets_data = []
         try:
             if hasattr(EnvironmentInterface, 'get_bullets'):
@@ -550,19 +569,11 @@ class MultiUavEnv:
                             pos = b
                         else:
                             continue
+                        scaled_bullet = scale_pos([float(pos[0]), float(pos[1]), float(pos[2])])
                         bullets_data.append({
-                            "x": float(pos[0]),
-                            "y": float(pos[1]),
-                            "z": float(pos[2])
-                        })
-            elif hasattr(self, 'weapon_obj') and hasattr(self.weapon_obj, 'fired_bullet_list'):
-                for bullet in self.weapon_obj.fired_bullet_list:
-                    if hasattr(bullet, 'position'):
-                        pos = bullet.position
-                        bullets_data.append({
-                            "x": float(pos[0]),
-                            "y": float(pos[1]),
-                            "z": float(pos[2])
+                            "x": scaled_bullet[0],
+                            "y": scaled_bullet[1],
+                            "z": scaled_bullet[2]
                         })
         except Exception as e:
             logger.debug(f"子弹数据采集失败: {e}")
@@ -576,23 +587,21 @@ class MultiUavEnv:
             "weapon": weapon_data,
             "target": target_data,
             "bullets": bullets_data,
-            "action": action  # NumpyEncoder 会自动处理
+            "action": action
         }
 
-        # ---- 7. 写入缓冲区（批量写入，优化 IO） ----
+        # ---- 7. 写入缓冲区 ----
         if not hasattr(self, '_step_buffer'):
             self._step_buffer = []
 
         self._step_buffer.append(step_record)
 
-        # 缓冲区阈值或 Episode 结束时写入
         buffer_size = 50
         is_episode_end = self._episode_steps >= self.max_episode_steps or any(self.is_terminal)
 
         if len(self._step_buffer) >= buffer_size or is_episode_end:
             self._flush_buffer_to_file()
 
-        # ---- 8. Episode 结束，记录完成日志 ----
         if is_episode_end and self.is_debug:
             logger.info(f"Episode {self.n_episode} 数据已保存到 {self.episode_data_file}")
 
