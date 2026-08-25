@@ -435,18 +435,24 @@ class MultiUavEnv:
         if not self.is_debug:
             return
 
-        # 获取武器状态
-        weapon_state = EnvironmentInterface.get_weapon_state()  # 0~4
-        tuning_time = 0.0
-        if hasattr(EnvironmentInterface, 'get_tuning_time'):
-            tuning_time = EnvironmentInterface.get_tuning_time()
+        import json
+        from pathlib import Path
 
-        # 获取炮口指向（瞄准点）
+        # ---- 1. 获取武器状态 ----
+        weapon_state = 0
+        tuning_time = 0.0
         aim_point = None
-        if hasattr(EnvironmentInterface, 'get_aim_point'):
-            aim_point = EnvironmentInterface.get_aim_point()
+        try:
+            weapon_state = EnvironmentInterface.get_weapon_state()  # 0~4
+            if hasattr(EnvironmentInterface, 'get_tuning_time'):
+                tuning_time = EnvironmentInterface.get_tuning_time()
+            if hasattr(EnvironmentInterface, 'get_aim_point'):
+                aim_point = EnvironmentInterface.get_aim_point()
+        except Exception as e:
+            logger.warning(f"获取武器状态失败: {e}")
+
+        # 若 aim_point 为空，计算默认方向（指向目标）
         if not aim_point:
-            # 默认指向目标方向
             to_target = np.array(self.target) - np.array(self.weapon)
             norm = np.linalg.norm(to_target)
             if norm > 0:
@@ -455,7 +461,7 @@ class MultiUavEnv:
                 to_target = np.array([50, 0, 0])
             aim_point = (np.array(self.weapon) + to_target).tolist()
 
-        # 构造无人机数据
+        # ---- 2. 构造无人机数据 ----
         uavs_data = []
         for i, uav in enumerate(self.raw_uavs):
             uavs_data.append({
@@ -470,7 +476,7 @@ class MultiUavEnv:
                 "velocity": uav.velocity.tolist() if hasattr(uav.velocity, 'tolist') else uav.velocity
             })
 
-        # 构造武器数据
+        # ---- 3. 构造武器数据 ----
         weapon_data = {
             "id": "WPN-001",
             "entityType": "weapon",
@@ -486,7 +492,7 @@ class MultiUavEnv:
             "ammo": 1000
         }
 
-        # 构造目标数据
+        # ---- 4. 构造目标数据 ----
         target_data = {
             "id": "TGT-001",
             "entityType": "target",
@@ -498,7 +504,41 @@ class MultiUavEnv:
             "threatRange": 50
         }
 
-        # 完整记录
+        # ---- 5. 【新增】获取子弹数据 ----
+        bullets_data = []
+        try:
+            # 尝试从武器接口获取子弹列表
+            if hasattr(EnvironmentInterface, 'get_bullets'):
+                raw_bullets = EnvironmentInterface.get_bullets()
+                if raw_bullets:
+                    for b in raw_bullets:
+                        # 假设每个子弹有 position 属性或方法
+                        if hasattr(b, 'position'):
+                            pos = b.position
+                        elif isinstance(b, (list, tuple)) and len(b) >= 3:
+                            pos = b
+                        else:
+                            continue
+                        bullets_data.append({
+                            "x": float(pos[0]),
+                            "y": float(pos[1]),
+                            "z": float(pos[2])
+                        })
+            # 如果武器内部有 fired_bullet_list 属性，也可以直接访问（依据你的代码结构）
+            elif hasattr(self, 'weapon_obj') and hasattr(self.weapon_obj, 'fired_bullet_list'):
+                for bullet in self.weapon_obj.fired_bullet_list:
+                    if hasattr(bullet, 'position'):
+                        pos = bullet.position
+                        bullets_data.append({
+                            "x": float(pos[0]),
+                            "y": float(pos[1]),
+                            "z": float(pos[2])
+                        })
+        except Exception as e:
+            # 子弹采集失败不影响整体记录
+            logger.debug(f"子弹数据采集失败: {e}")
+
+        # ---- 6. 完整记录 ----
         step_record = {
             "step": self._episode_steps,
             "reward": self.reward if isinstance(self.reward, list) else [float(self.reward)],
@@ -506,13 +546,11 @@ class MultiUavEnv:
             "uavs": uavs_data,
             "weapon": weapon_data,
             "target": target_data,
+            "bullets": bullets_data,  # 始终包含该字段，即使为空列表
             "action": action.tolist() if hasattr(action, 'tolist') else action
         }
 
-        # 追加到文件
-        import json
-        from pathlib import Path
-
+        # ---- 7. 追加到文件 ----
         file_path = Path(self.episode_data_file)
         file_path.parent.mkdir(parents=True, exist_ok=True)
 

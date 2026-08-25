@@ -68,3 +68,7 @@ class Game:
     @staticmethod
     def get_weapon_state():
         return TrackRaderState.get_current_int_state()
+
+    @staticmethod
+    def get_bullets():
+        return GameManager.get_bullets()

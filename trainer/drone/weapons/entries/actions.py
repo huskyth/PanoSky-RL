@@ -85,6 +85,10 @@ class GameManager:
             GameManager.uav_list[idx].position = s_p.copy()
 
     @staticmethod
+    def get_bullets():
+        return GameManager.weapon.fired_bullet_list
+
+    @staticmethod
     def get_uav_list():
         return GameManager.uav_list
 

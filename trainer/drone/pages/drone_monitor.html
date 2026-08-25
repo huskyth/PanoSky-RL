@@ -123,49 +123,90 @@
         // ---- 创建武器（整体化，无散落） ----
         function createWeapon(pos, aimPos) {
             const g = new THREE.Group();
+
+            // ---- 武器主体 ----
             // 底座
             const base = new THREE.Mesh(
                 new THREE.CylinderGeometry(3, 4, 1.5, 8),
-                new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0xd97706, emissiveIntensity: 0.1 })
+                new THREE.MeshStandardMaterial({
+                    color: 0xf59e0b,
+                    emissive: 0xd97706,
+                    emissiveIntensity: 0.1
+                })
             );
             base.position.set(0, 0.8, 0);
             g.add(base);
-            // 炮塔
+
+            // 炮塔（球体）
             const turret = new THREE.Mesh(
                 new THREE.SphereGeometry(2, 8, 8),
-                new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0xd97706, emissiveIntensity: 0.05 })
+                new THREE.MeshStandardMaterial({
+                    color: 0xf59e0b,
+                    emissive: 0xd97706,
+                    emissiveIntensity: 0.05
+                })
             );
             turret.position.set(0, 2.2, 0);
             g.add(turret);
+
             // 炮管
             const barrel = new THREE.Mesh(
                 new THREE.CylinderGeometry(0.4, 0.6, 4, 6),
-                new THREE.MeshStandardMaterial({ color: 0x475569 })
+                new THREE.MeshStandardMaterial({
+                    color: 0x475569,
+                    metalness: 0.9,
+                    roughness: 0.2
+                })
             );
             barrel.rotation.x = Math.PI / 2;
             barrel.position.set(0, 2.2, 3);
             g.add(barrel);
 
+            // 设置武器位置
             g.position.copy(pos);
             entityGroup.add(g);
 
-            // ---- 红色瞄准线 ----
+            // ---- 红色瞄准线（固定长度 30，只旋转不伸缩） ----
             if (aimPos) {
                 const start = pos.clone();
-                const end = aimPos.clone();
+
+                // 计算从武器到瞄准点的方向向量（归一化）
+                const direction = new THREE.Vector3()
+                    .copy(aimPos)
+                    .sub(pos);
+
+                // 如果方向向量长度不为零，归一化
+                if (direction.length() > 0.001) {
+                    direction.normalize();
+                } else {
+                    // 如果方向为零向量，默认指向 Z 正方向
+                    direction.set(0, 0, 1);
+                }
+
+                // 固定长度 30
+                const fixedLength = 30;
+                const end = pos.clone().add(direction.multiplyScalar(fixedLength));
+
+                // 红色瞄准线
                 const lineGeo = new THREE.BufferGeometry().setFromPoints([start, end]);
-                const lineMat = new THREE.LineBasicMaterial({ color: 0xff0000 });
+                const lineMat = new THREE.LineBasicMaterial({
+                    color: 0xff0000,
+                    linewidth: 2
+                });
                 const line = new THREE.Line(lineGeo, lineMat);
                 entityGroup.add(line);
 
                 // 弦顶标记（黄色小球）
                 const dot = new THREE.Mesh(
                     new THREE.SphereGeometry(0.6, 6, 6),
-                    new THREE.MeshBasicMaterial({ color: 0xffff00 })
+                    new THREE.MeshBasicMaterial({
+                        color: 0xffff00
+                    })
                 );
                 dot.position.copy(end);
                 entityGroup.add(dot);
             }
+
             return g;
         }
 
