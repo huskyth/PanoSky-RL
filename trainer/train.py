@@ -12,14 +12,9 @@ from collections import deque
 import gymnasium as gym
 
 # ==========================================
-# 修改：导入你自己的环境
+# 导入你自己的环境
 # ==========================================
-# 假设你的 MultiUavEnv 在 trainer.drone 包下
-# 根据你的实际路径修改这行
-from drone.mul_uav_env import MultiUavEnv  # 如果你的环境在 trainer.drone 包下
-
-
-# 或者直接传入 cf 对象
+from drone.mul_uav_env import MultiUavEnv
 
 
 # ==========================================
@@ -48,7 +43,7 @@ class PPOArgs:
 
 
 # ==========================================
-# 2. 神经网络结构（保持不变）
+# 2. 神经网络结构
 # ==========================================
 def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     torch.nn.init.orthogonal_(layer.weight, std)
@@ -92,7 +87,7 @@ class Critic(nn.Module):
 
 
 # ==========================================
-# 3. 经验回放池 (Rollout Buffer) - 适配你的环境
+# 3. 经验回放池 (Rollout Buffer)
 # ==========================================
 class RolloutBuffer:
     def __init__(self, num_steps, num_agents, obs_dim, global_state_dim, action_dim, device):
@@ -122,57 +117,40 @@ class RolloutBuffer:
 
 
 # ==========================================
-# 4. 训练主循环（适配 MultiUavEnv）
+# 4. 训练主循环
 # ==========================================
 def train():
     args = PPOArgs()
 
-    # ==========================================
-    # 修改：创建你自己的环境实例
-    # ==========================================
-
+    # ---- 加载配置文件 ----
     config_path = f'drone/config/{args.config_name}'
     cf = configparser.ConfigParser()
     cf.read(str(config_path), encoding="utf-8")
-    # 方式二：直接传入 cf 参数（需要先构造）
-    # 如果你暂时没有配置文件，可以传 None，然后在 init_from_config 里用默认值
+
+    # ---- 创建环境 ----
     env = MultiUavEnv(
         rank=0,
         mode="train",
-        cf=cf,  # 如果你有配置文件，替换这里
+        cf=cf,
         episode_limit=500,
         is_debug=True,
         is_share=True
     )
 
-    # ==========================================
-    # 获取维度（适配你的环境）
-    # ==========================================
-    # 注意：你的环境返回的是 list of obs，而不是 dict
-    # 先用 reset 获取初始观测
-    obs_list = env.reset()  # obs_list 是 list of np.array
-
-    # 单智能体观测维度
-    # 你的 obs 是 28 维向量（在 get_observation_of_a_uav 里定义的）
+    # ---- 获取维度 ----
+    obs_list = env.reset()
     if env.is_share:
-        # 如果是 share 模式，obs 是一个 dict，有 "linear" 字段
         obs_dim = env.observation_space[0]["linear"].shape[0]
-        # 或者直接取实际 obs 的维度
-        # obs_dim = len(obs_list[0])
     else:
-        # 如果是非 share 模式，obs 直接是 Box 向量
         obs_dim = env.observation_space[0].shape[0]
 
-    # 动作维度：你的动作是 Box(3)
     action_dim = env.action_space[0].shape[0]
-
-    # 全局状态维度 = 所有智能体的观测拼接
-    num_agents = env.n_total_uavs  # 从环境获取智能体数量
+    num_agents = env.n_total_uavs
     global_state_dim = obs_dim * num_agents
 
     print(f"obs_dim: {obs_dim}, action_dim: {action_dim}, num_agents: {num_agents}")
 
-    # 实例化网络与优化器
+    # ---- 实例化网络 ----
     actor = Actor(obs_dim, action_dim).to(args.device)
     critic = Critic(global_state_dim).to(args.device)
     optimizer = optim.Adam([
@@ -182,25 +160,21 @@ def train():
 
     buffer = RolloutBuffer(args.num_steps, num_agents, obs_dim, global_state_dim, action_dim, args.device)
 
-    # 日志探针数据结构
+    # ---- 日志 ----
     ep_rewards = deque(maxlen=args.log_interval)
     ep_lengths = deque(maxlen=args.log_interval)
-    ep_success = deque(maxlen=args.log_interval)  # 记录成功率
+    ep_success = deque(maxlen=args.log_interval)
     all_episode_rewards = []
 
     global_step = 0
     start_time = time.time()
 
-    # ==========================================
-    # 修改：处理初始观测（适配你的环境）
-    # ==========================================
     obs_list = env.reset()
-    # 转换为 tensor [num_agents, obs_dim]
     obs_tensor = torch.tensor(np.array(obs_list), dtype=torch.float32).to(args.device)
 
     current_ep_reward = 0
     current_ep_length = 0
-    current_ep_success = 0  # 1 表示成功，0 表示失败
+    current_ep_success = 0
 
     print(f"[{time.strftime('%H:%M:%S')}] 开始 MAPPO 训练 | 设备: {args.device} | 目标步数: {args.total_timesteps}")
     print(f"智能体数量: {num_agents}, 观测维度: {obs_dim}, 动作维度: {action_dim}")
@@ -209,47 +183,31 @@ def train():
     print("-" * 80)
 
     while global_step < args.total_timesteps:
-        # -------------------------------------
-        # 阶段 A：收集数据 (Rollout)
-        # -------------------------------------
+        # ---- 阶段 A：收集数据 ----
         actor.eval()
         critic.eval()
 
         for step in range(args.num_steps):
             global_step += 1
 
-            # 构建全局状态
-            global_state_tensor = obs_tensor.flatten().unsqueeze(0)  # [1, global_state_dim]
+            global_state_tensor = obs_tensor.flatten().unsqueeze(0)
 
             with torch.no_grad():
-                # Actor 给出动作（所有智能体共享同一个策略网络）
-                action_dist = actor(obs_tensor)  # obs_tensor: [num_agents, obs_dim]
-                action = action_dist.sample()  # [num_agents, action_dim]
-                logprob = action_dist.log_prob(action).sum(1)  # [num_agents]
+                action_dist = actor(obs_tensor)
+                action = action_dist.sample()
+                logprob = action_dist.log_prob(action).sum(1)
+                value = critic(global_state_tensor).flatten()
+                value_expanded = value.expand(num_agents)
 
-                # Critic 给出价值（输入全局状态）
-                value = critic(global_state_tensor).flatten()  # [1] -> 标量
-                value_expanded = value.expand(num_agents)  # [num_agents]
-
-            # 裁剪动作到 [-1, 1]
             action_np = torch.clamp(action, -1.0, 1.0).cpu().numpy()
-
-            # 你的环境 step 接收的是 list of actions
-            # 每个 action 是 shape=(3,) 的 numpy array
             action_list = [action_np[i] for i in range(num_agents)]
 
-            # ==========================================
-            # 执行步进
-            # ==========================================
             next_obs_list, rewards_list, term_list, info = env.step(action_list)
-            # 注意：你的环境返回的 term_list 是 list of bool
 
-            # 转换数据格式
             reward_tensor = torch.tensor(np.array(rewards_list).flatten(), dtype=torch.float32).to(args.device)
             done_tensor = torch.tensor(np.array(term_list), dtype=torch.float32).to(args.device)
             next_obs_tensor = torch.tensor(np.array(next_obs_list), dtype=torch.float32).to(args.device)
 
-            # 存入 Buffer
             buffer.add(obs_tensor, global_state_tensor.squeeze(0), action, logprob,
                        reward_tensor, done_tensor, value_expanded)
 
@@ -257,23 +215,18 @@ def train():
             current_ep_reward += np.mean(rewards_list)
             current_ep_length += 1
 
-            # 判断是否成功（你的环境里，任务成功时 term_list 全为 True，且 rewards 里有 +100）
             if any(term_list):
-                # 检查是否有任务成功奖励
-                if max(rewards_list) > 50:  # 有 +100 奖励，说明任务成功
+                if max(rewards_list) > 50:
                     current_ep_success = 1
                 else:
                     current_ep_success = 0
 
-            # 回合结束逻辑
             if any(term_list):
                 ep_rewards.append(current_ep_reward)
                 ep_lengths.append(current_ep_length)
                 ep_success.append(current_ep_success)
-
                 all_episode_rewards.append(current_ep_reward)
 
-                # 打印探针日志
                 if len(ep_rewards) >= args.log_interval:
                     fps = int(global_step / (time.time() - start_time))
                     success_rate = np.mean(ep_success) * 100
@@ -282,30 +235,24 @@ def train():
                           f"{np.mean(ep_lengths):>8.0f} | "
                           f"{success_rate:>9.1f}% | "
                           f"{fps:>6}")
-                    # 清空队列
                     ep_rewards.clear()
                     ep_lengths.clear()
                     ep_success.clear()
 
-                # 重置环境
                 obs_list = env.reset()
                 obs_tensor = torch.tensor(np.array(obs_list), dtype=torch.float32).to(args.device)
                 current_ep_reward = 0
                 current_ep_length = 0
                 current_ep_success = 0
 
-        # -------------------------------------
-        # 阶段 B：GAE 计算与 PPO 更新
-        # -------------------------------------
+        # ---- 阶段 B：GAE 计算与 PPO 更新 ----
         actor.train()
         critic.train()
 
-        # 获取最后一步的价值用于 Bootstrap
         global_state_tensor = obs_tensor.flatten().unsqueeze(0)
         with torch.no_grad():
             next_value = critic(global_state_tensor).flatten().expand(num_agents)
 
-        # 计算 GAE 和 Returns
         advantages = torch.zeros_like(buffer.rewards).to(args.device)
         lastgaelam = 0
         for t in reversed(range(args.num_steps)):
@@ -319,7 +266,6 @@ def train():
             advantages[t] = lastgaelam = delta + args.gamma * args.gae_lambda * nextnonterminal * lastgaelam
         returns = advantages + buffer.values
 
-        # 展平 Buffer 数据
         b_obs = buffer.obs.view(-1, obs_dim)
         b_global_states = buffer.global_states.unsqueeze(1).expand(-1, num_agents, -1).reshape(-1, global_state_dim)
         b_actions = buffer.actions.view(-1, action_dim)
@@ -328,7 +274,6 @@ def train():
         b_returns = returns.view(-1)
         b_values = buffer.values.view(-1)
 
-        # 学习率退火
         frac = 1.0 - (global_step - 1.0) / args.total_timesteps
         current_lr = args.lr * frac
         optimizer.param_groups[0]["lr"] = current_lr
@@ -341,7 +286,6 @@ def train():
                 end = start + args.batch_size
                 mb_inds = b_inds[start:end]
 
-                # Actor 损失计算
                 action_dist = actor(b_obs[mb_inds])
                 newlogprob = action_dist.log_prob(b_actions[mb_inds]).sum(1)
                 entropy = action_dist.entropy().sum(1).mean()
@@ -355,7 +299,6 @@ def train():
                 pg_loss2 = -mb_advantages * torch.clamp(ratio, 1 - args.clip_coef, 1 + args.clip_coef)
                 pg_loss = torch.max(pg_loss1, pg_loss2).mean()
 
-                # Critic 损失计算
                 newvalue = critic(b_global_states[mb_inds]).view(-1)
                 v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
                 v_clipped = b_values[mb_inds] + torch.clamp(
@@ -377,9 +320,7 @@ def train():
 
         buffer.clear()
 
-        # -------------------------------------
-        # 阶段 C：模型持久化
-        # -------------------------------------
+        # ---- 阶段 C：模型持久化 ----
         if global_step % args.save_interval == 0 or global_step >= args.total_timesteps:
             os.makedirs("checkpoints", exist_ok=True)
             model_path = f"checkpoints/mappo_actor_step_{global_step}.pth"
@@ -387,11 +328,44 @@ def train():
             print(f">>> 模型已保存至: {model_path}")
 
     # ==========================================
-    # 5. 训练结束
+    # 5. 训练结束，绘制曲线
     # ==========================================
     print(f"[{time.strftime('%H:%M:%S')}] 训练结束！共耗时 {(time.time() - start_time) / 3600:.2f} 小时。")
     print(f"总回合数: {len(all_episode_rewards)}")
     print(f"平均奖励: {np.mean(all_episode_rewards):.2f}")
+
+    # ---- 绘制奖励曲线 ----
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+
+        plt.figure(figsize=(12, 6))
+        plt.plot(all_episode_rewards, alpha=0.3, color='blue', label='Raw Reward')
+
+        window = 50
+        if len(all_episode_rewards) >= window:
+            smoothed = np.convolve(all_episode_rewards, np.ones(window)/window, mode='valid')
+            plt.plot(np.arange(window-1, len(all_episode_rewards)), smoothed,
+                     color='red', linewidth=2, label=f'MA ({window})')
+
+        plt.title('MAPPO Training - Average Reward per Episode', fontsize=14)
+        plt.xlabel('Episode', fontsize=12)
+        plt.ylabel('Reward', fontsize=12)
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+
+        os.makedirs("logs", exist_ok=True)
+        plt.savefig("logs/reward_curve.png", dpi=150, bbox_inches='tight')
+        print("✅ 奖励曲线已保存到 logs/reward_curve.png")
+
+        # 如果是本地运行，取消注释以下行可弹窗显示
+        # plt.show()
+
+    except ImportError:
+        print("⚠️ matplotlib 未安装，请运行: pip install matplotlib")
+    except Exception as e:
+        print(f"⚠️ 绘图失败: {e}")
 
 
 if __name__ == "__main__":
