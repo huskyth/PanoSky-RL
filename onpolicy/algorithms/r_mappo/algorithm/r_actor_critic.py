@@ -50,13 +50,13 @@ class R_Actor(nn.Module):
 
     def forward(self, obs_linear, rnn_states, masks, available_actions=None, deterministic=False):
         """
-        Compute actions from the given inputs.
+        Compute actions trainer the given inputs.
         :param obs: (np.ndarray / torch.Tensor) observation inputs into network.
         :param rnn_states: (np.ndarray / torch.Tensor) if RNN network, hidden states for RNN.
         :param masks: (np.ndarray / torch.Tensor) mask tensor denoting if hidden states should be reinitialized to zeros.
         :param available_actions: (np.ndarray / torch.Tensor) denotes which actions are available to agent
                                                               (if None, all actions available)
-        :param deterministic: (bool) whether to sample from action distribution or return the mode.
+        :param deterministic: (bool) whether to sample trainer action distribution or return the mode.
 
         :return actions: (torch.Tensor) actions to take.
         :return action_log_probs: (torch.Tensor) log probabilities of taken actions.
@@ -175,7 +175,7 @@ class R_Critic(nn.Module):
 
     def forward(self, cent_obs_lin, rnn_states, masks):
         """
-        Compute actions from the given inputs.
+        Compute actions trainer the given inputs.
         :param cent_obs: (np.ndarray / torch.Tensor) observation inputs into network.
         :param rnn_states: (np.ndarray / torch.Tensor) if RNN network, hidden states for RNN.
         :param masks: (np.ndarray / torch.Tensor) mask tensor denoting if RNN states should be reinitialized to zeros.

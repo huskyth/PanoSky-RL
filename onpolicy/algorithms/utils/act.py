@@ -43,11 +43,11 @@ class ACTLayer(nn.Module):
     
     def forward(self, x_lin, available_actions=None, deterministic=False):
         """
-        Compute actions and action logprobs from given input.
+        Compute actions and action logprobs trainer given input.
         :param x: (torch.Tensor) input to network.
         :param available_actions: (torch.Tensor) denotes which actions are available to agent
                                   (if None, all actions available)
-        :param deterministic: (bool) whether to sample from action distribution or return the mode.
+        :param deterministic: (bool) whether to sample trainer action distribution or return the mode.
 
         :return actions: (torch.Tensor) actions to take.
         :return action_log_probs: (torch.Tensor) log probabilities of taken actions.
@@ -93,7 +93,7 @@ class ACTLayer(nn.Module):
 
     def get_probs(self, x, available_actions=None):
         """
-        Compute action probabilities from inputs.
+        Compute action probabilities trainer inputs.
         :param x: (torch.Tensor) input to network.
         :param available_actions: (torch.Tensor) denotes which actions are available to agent
                                   (if None, all actions available)

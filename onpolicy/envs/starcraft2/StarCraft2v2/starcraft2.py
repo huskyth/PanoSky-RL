@@ -203,7 +203,7 @@ class StarCraft2Env(MultiAgentEnv):
             Whether or not to use a non-learning heuristic AI (default False).
         heuristic_rest: bool, optional
             At any moment, restrict the actions of the heuristic AI to be
-            chosen from actions available to RL agents (default is False).
+            chosen trainer actions available to RL agents (default is False).
             Ignored if heuristic_ai == False.
         debug: bool, optional
             Log messages about observations, state, actions and rewards for
@@ -2660,7 +2660,7 @@ class StarCraft2Env(MultiAgentEnv):
         self.unit_name_to_id_map[unit_name] = unit_type_id
 
     def _init_ally_unit_types(self, min_unit_type):
-        """Initialise ally unit types. Should be called once from the
+        """Initialise ally unit types. Should be called once trainer the
         init_units function.
         """
 

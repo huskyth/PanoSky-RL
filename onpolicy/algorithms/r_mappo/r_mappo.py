@@ -56,7 +56,7 @@ class R_MAPPO():
         """
         Calculate value function loss.
         :param values: (torch.Tensor) value function predictions.
-        :param value_preds_batch: (torch.Tensor) "old" value  predictions from data batch (used for value clip loss)
+        :param value_preds_batch: (torch.Tensor) "old" value  predictions trainer data batch (used for value clip loss)
         :param return_batch: (torch.Tensor) reward to go returns.
         :param active_masks_batch: (torch.Tensor) denotes if agent is active or dead at a given timesep.
 
@@ -98,10 +98,10 @@ class R_MAPPO():
         :update_actor: (bool) whether to update actor network.
 
         :return value_loss: (torch.Tensor) value function loss.
-        :return critic_grad_norm: (torch.Tensor) gradient norm from critic up9date.
+        :return critic_grad_norm: (torch.Tensor) gradient norm trainer critic up9date.
         ;return policy_loss: (torch.Tensor) actor(policy) loss value.
         :return dist_entropy: (torch.Tensor) action entropies.
-        :return actor_grad_norm: (torch.Tensor) gradient norm from actor update.
+        :return actor_grad_norm: (torch.Tensor) gradient norm trainer actor update.
         :return imp_weights: (torch.Tensor) importance sampling weights.
         """
         if len(sample) == 12:

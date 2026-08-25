@@ -57,7 +57,7 @@ class HATRPO():
         """
         Calculate value function loss.
         :param values: (torch.Tensor) value function predictions.
-        :param value_preds_batch: (torch.Tensor) "old" value  predictions from data batch (used for value clip loss)
+        :param value_preds_batch: (torch.Tensor) "old" value  predictions trainer data batch (used for value clip loss)
         :param return_batch: (torch.Tensor) reward to go returns.
         :param active_masks_batch: (torch.Tensor) denotes if agent is active or dead at a given timesep.
 
@@ -152,7 +152,7 @@ class HATRPO():
             kl=kl.sum(1, keepdim=True)
         return kl
 
-    # from openai baseline code
+    # trainer openai baseline code
     # https://github.com/openai/baselines/blob/master/baselines/common/cg.py
     def conjugate_gradient(self, actor, obs, rnn_states, action, masks, available_actions, active_masks, b, nsteps, residual_tol=1e-10):
         x = torch.zeros(b.size()).to(device=self.device)
@@ -190,10 +190,10 @@ class HATRPO():
         :update_actor: (bool) whether to update actor network.
 
         :return value_loss: (torch.Tensor) value function loss.
-        :return critic_grad_norm: (torch.Tensor) gradient norm from critic update.
+        :return critic_grad_norm: (torch.Tensor) gradient norm trainer critic update.
         ;return policy_loss: (torch.Tensor) actor(policy) loss value.
         :return dist_entropy: (torch.Tensor) action entropies.
-        :return actor_grad_norm: (torch.Tensor) gradient norm from actor update.
+        :return actor_grad_norm: (torch.Tensor) gradient norm trainer actor update.
         :return imp_weights: (torch.Tensor) importance sampling weights.
         """
         share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, \

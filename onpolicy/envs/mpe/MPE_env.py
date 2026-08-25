@@ -9,7 +9,7 @@ def MPEEnv(args):
     Use env.render() to view the environment on the screen.
 
     Input:
-        scenario_name   :   name of the scenario from ./scenarios/ to be Returns
+        scenario_name   :   name of the scenario trainer ./scenarios/ to be Returns
                             (without the .py extension)
         benchmark       :   whether you want to produce benchmarking data
                             (usually only done during evaluation)
@@ -20,7 +20,7 @@ def MPEEnv(args):
         .n                  :   Returns the number of Agents
     '''
 
-    # load scenario from script
+    # load scenario trainer script
     scenario = load(args.scenario_name + ".py").Scenario()
     # create world
     world = scenario.make_world(args)

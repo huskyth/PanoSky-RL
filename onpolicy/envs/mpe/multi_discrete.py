@@ -11,7 +11,7 @@ class MultiDiscrete(gym.Space):
     - It can be adapted to both a Discrete action space or a continuous (Box) action space
     - It is useful to represent game controllers or keyboards where each key can be represented as a discrete action space
     - It is parametrized by passing an array of arrays containing [min, max] for each discrete action space
-       where the discrete action space can take any integers from `min` to `max` (both inclusive)
+       where the discrete action space can take any integers trainer `min` to `max` (both inclusive)
     Note: A value of 0 always need to represent the NOOP action.
     e.g. Nintendo Game Controller
     - Can be conceptualized as 3 discrete action spaces:
@@ -28,7 +28,7 @@ class MultiDiscrete(gym.Space):
         self.n = np.sum(self.high) + 2
 
     def sample(self):
-        """ Returns a array with one sample from each discrete action space """
+        """ Returns a array with one sample trainer each discrete action space """
         # For each row: round(random .* (max - min) + min, 0)
         random_array = np.random.rand(self.num_discrete_space)
         return [int(x) for x in np.floor(np.multiply((self.high - self.low + 1.), random_array) + self.low)]

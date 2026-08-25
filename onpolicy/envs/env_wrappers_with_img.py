@@ -1,5 +1,5 @@
 """
-Modified from OpenAI Baselines code to work with multi-agent envs
+Modified trainer OpenAI Baselines code to work with multi-agent envs
 """
 import numpy as np
 from multiprocessing import Process, Pipe
@@ -27,7 +27,7 @@ class CloudpickleWrapper(object):
 class ShareVecEnv(ABC):
     """
     An abstract asynchronous, vectorized environment.
-    Used to batch data from multiple copies of an environment, so that
+    Used to batch data trainer multiple copies of an environment, so that
     each observation becomes an batch of observations, and expected action is a batch of actions to
     be applied per-environment.
     """
@@ -119,7 +119,7 @@ class ShareVecEnv(ABC):
 
     def get_images(self):
         """
-        Return RGB images from each environment
+        Return RGB images trainer each environment
         """
         raise NotImplementedError
 

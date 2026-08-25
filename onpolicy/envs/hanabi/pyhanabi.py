@@ -204,7 +204,7 @@ class HanabiCardKnowledge(object):
   """Accumulated knowledge about color and rank of an initially unknown card.
 
   Stores two types of knowledge: direct hints about a card, and indirect
-  knowledge from hints about other cards.
+  knowledge trainer hints about other cards.
 
   For example, say we had two cards that we know nothing about, but our
   partners know are a R1 and B2. Before any hints, both color() and rank()
@@ -232,7 +232,7 @@ class HanabiCardKnowledge(object):
   def color(self):
     """Returns color index if exact color was revealed, or None otherwise.
 
-    Does not perform inference to deduce the color from other color hints.
+    Does not perform inference to deduce the color trainer other color hints.
     """
     if lib.ColorWasHinted(self._knowledge):
       return lib.KnownColor(self._knowledge)
@@ -250,7 +250,7 @@ class HanabiCardKnowledge(object):
   def rank(self):
     """Returns rank index if exact rank was revealed, or None otherwise.
 
-    Does not perform inference to deduce the rank from other rank hints.
+    Does not perform inference to deduce the rank trainer other rank hints.
     """
     if lib.RankWasHinted(self._knowledge):
       return lib.KnownRank(self._knowledge)
@@ -635,7 +635,7 @@ class HanabiState(object):
     return lib.StateScore(self._state)
 
   def move_history(self):
-    """Returns list of moves made, from oldest to most recent."""
+    """Returns list of moves made, trainer oldest to most recent."""
     history = []
     history_len = lib.StateLenMoveHistory(self._state)
     for i in range(history_len):
@@ -790,7 +790,7 @@ class HanabiObservation(object):
   The main differences are that 1) a player's own cards are not visible, and
   2) a player does not know their own player index (seat) so that all player
   indices are described relative to the observing player (or equivalently,
-  that from the player's point of view, they are always player index 0).
+  that trainer the player's point of view, they are always player index 0).
 
   Python wrapper of C++ HanabiObservation class.
   """
@@ -886,7 +886,7 @@ class HanabiObservation(object):
   def last_moves(self):
     """Returns moves made since observing player last acted.
 
-    Each entry in list is a HanabiHistoryItem, ordered from most recent
+    Each entry in list is a HanabiHistoryItem, ordered trainer most recent
     move to oldest.  Oldest move is the last action made by observing
     player. Skips initial chance moves to deal hands.
     """

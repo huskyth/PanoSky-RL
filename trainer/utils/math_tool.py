@@ -1,8 +1,8 @@
 import random
 from math import cos, sin, sqrt, pi, asin, acos, ceil
 
-from onpolicy.envs.drone.weapons.entries.config.global_config import GameConfig
-from onpolicy.utils.format_logger import AppLogger
+from ..drone.weapons.entries.config.global_config import GameConfig
+from .format_logger import AppLogger
 
 logger = AppLogger().get_logger()
 
@@ -13,7 +13,7 @@ def set_seed(seed):
 
 
 def clip(from_number, to_number, number):
-    assert from_number <= to_number, 'from cannot large than to'
+    assert from_number <= to_number, 'trainer cannot large than to'
     return min(max(number, from_number), to_number)
 
 

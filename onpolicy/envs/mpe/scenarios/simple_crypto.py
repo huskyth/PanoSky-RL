@@ -1,6 +1,6 @@
 """
 Scenario:
-1 speaker, 2 listeners (one of which is an adversary). Good agents rewarded for proximity to goal, and distance from
+1 speaker, 2 listeners (one of which is an adversary). Good agents rewarded for proximity to goal, and distance trainer
 adversary to goal. Adversary is rewarded for its distance to the goal.
 """
 

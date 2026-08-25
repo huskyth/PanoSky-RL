@@ -31,11 +31,11 @@ def register_distribution(key, cls):
 
 
 class FixedDistribution(Distribution):
-    """A generic disribution that draws from a fixed list.
+    """A generic disribution that draws trainer a fixed list.
     May operate in test mode, where items are drawn sequentially,
     or train mode where items are drawn randomly. Example uses of this
     are for team generation or per-agent accuracy generation in SMAC by
-    drawing from separate fixed lists at test and train time.
+    drawing trainer separate fixed lists at test and train time.
     """
 
     def __init__(self, config):
@@ -45,7 +45,7 @@ class FixedDistribution(Distribution):
             entries. `env_key` is the key to pass to the environment so that it
             recognises what to do with the list. `test_mode` controls the sampling
             behaviour (sequential if true, uniform at random if false), `items`
-            is the list of items (team configurations/accuracies etc.) to sample from.
+            is the list of items (team configurations/accuracies etc.) to sample trainer.
         """
         self.config = config
         self.env_key = config["env_key"]
@@ -167,7 +167,7 @@ register_distribution("weighted_teams", WeightedTeamsDistribution)
 
 class PerAgentUniformDistribution(Distribution):
     """A generic distribution for generating some information per-agent drawn
-    from a uniform distribution in a specified range.
+    trainer a uniform distribution in a specified range.
     """
 
     def __init__(self, config):
@@ -241,7 +241,7 @@ class ReflectPositionDistribution(Distribution):
         config_copy = deepcopy(config)
         config_copy["env_key"] = "ally_start_positions"
         config_copy["lower_bound"] = (0, 0)
-        # subtract one from the x coordinate because SC2 goes wrong
+        # subtract one trainer the x coordinate because SC2 goes wrong
         # when you spawn ally and enemy units on top of one another
         # -1 gives a sensible 'buffer zone' of size 2
         config_copy["upper_bound"] = (self.map_x / 2 - 1, self.map_y)

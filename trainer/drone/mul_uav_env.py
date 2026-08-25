@@ -8,7 +8,7 @@ import os
 import numpy as np
 from gym import spaces
 
-from onpolicy.utils.format_logger import AppLogger, _green_log_str
+from ..utils.format_logger import AppLogger, _green_log_str
 from .weapons.entries.uav.uav_enum import UAVState, AttackState
 from .maps.map import Map
 from onpolicy.utils.util import compute_distance

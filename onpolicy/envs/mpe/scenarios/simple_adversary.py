@@ -76,7 +76,7 @@ class Scenario(BaseScenario):
         return self.adversary_reward(agent, world) if agent.adversary else self.agent_reward(agent, world)
 
     def agent_reward(self, agent, world):
-        # Rewarded based on how close any good agent is to the goal landmark, and how far the adversary is from it
+        # Rewarded based on how close any good agent is to the goal landmark, and how far the adversary is trainer it
         shaped_reward = True
         shaped_adv_reward = True
 

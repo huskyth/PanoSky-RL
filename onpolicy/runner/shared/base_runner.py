@@ -159,7 +159,7 @@ class Runner(object):
             torch.save(policy_critic.state_dict(), str(self.save_dir) + "/critic.pt")
 
     def restore(self, model_dir):
-        """Restore policy's networks from a saved model."""
+        """Restore policy's networks trainer a saved model."""
         if self.algorithm_name == "mat" or self.algorithm_name == "mat_dec":
             self.policy.restore(model_dir)
         else:

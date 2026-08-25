@@ -31,7 +31,7 @@ MOVE_TYPES = [_.name for _ in pyhanabi.HanabiMoveType]
 class Environment(object):
     """Abstract Environment interface.
 
-    All concrete implementations of an environment should derive from this
+    All concrete implementations of an environment should derive trainer this
     interface and implement the method stubs.
     """
 
@@ -61,7 +61,7 @@ class Environment(object):
 
         Returns:
           observation: dict, Containing full observation state.
-          reward: float, Reward obtained from taking the action.
+          reward: float, Reward obtained trainer taking the action.
           done: bool, Whether the game is done.
           info: dict, Optional debugging information.
 
@@ -446,7 +446,7 @@ class HanabiEnv(Environment):
                                                 {'color': 'W', 'rank': 1}]],
                                 'num_players': 2,
                                 'vectorized': [ 0, 0, 1, ... ]}]}
-          reward: float, Reward obtained from taking the action.
+          reward: float, Reward obtained trainer taking the action.
           done: bool, Whether the game is done.
           info: dict, Optional debugging information.
 
@@ -519,14 +519,14 @@ class HanabiEnv(Environment):
         return obs
 
     def _extract_dict_from_backend(self, player_id, observation):
-        """Extract a dict of features from an observation from the backend.
+        """Extract a dict of features trainer an observation trainer the backend.
 
         Args:
-          player_id: Int, player from whose perspective we generate the observation.
+          player_id: Int, player trainer whose perspective we generate the observation.
           observation: A `pyhanabi.HanabiObservation` object.
 
         Returns:
-          obs_dict: dict, mapping from HanabiObservation to a dict.
+          obs_dict: dict, mapping trainer HanabiObservation to a dict.
         """
         obs_dict = {}
         obs_dict["current_player"] = self.state.cur_player()
@@ -579,7 +579,7 @@ class HanabiEnv(Environment):
         return obs_dict
 
     def _build_move(self, action):
-        """Build a move from an action dict.
+        """Build a move trainer an action dict.
 
         Args:
           action: dict, mapping to a legal action taken by an agent. The following
@@ -598,7 +598,7 @@ class HanabiEnv(Environment):
                 }
 
         Returns:
-          move: A `HanabiMove` object constructed from action.
+          move: A `HanabiMove` object constructed trainer action.
 
         Raises:
           ValueError: Unknown action type.
@@ -735,7 +735,7 @@ def make(environment_name="Hanabi-Full", num_players=2, pyhanabi_path=None):
 class Agent(object):
     """Agent interface.
 
-    All concrete implementations of an Agent should derive from this interface
+    All concrete implementations of an Agent should derive trainer this interface
     and implement the method stubs.
 
 
@@ -802,7 +802,7 @@ class Agent(object):
         """Act based on an observation.
 
         Args:
-          observation: dict, containing observation from the view of this agent.
+          observation: dict, containing observation trainer the view of this agent.
             An example:
             {'current_player': 0,
              'current_player_offset': 1,
