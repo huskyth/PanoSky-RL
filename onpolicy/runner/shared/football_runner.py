@@ -1,6 +1,4 @@
-from collections import defaultdict, deque
-from itertools import chain
-import os
+from collections import defaultdict
 import time
 
 import imageio
@@ -8,7 +6,6 @@ import numpy as np
 import torch
 import wandb
 
-from onpolicy.utils.util import update_linear_schedule
 from onpolicy.runner.shared.base_runner import Runner
 
 

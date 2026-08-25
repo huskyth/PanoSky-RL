@@ -1,5 +1,4 @@
 from onpolicy.envs.drone.weapons.entries.phalanx.components.rader import *
-from onpolicy.utils.util import compute_distance
 import math
 
 

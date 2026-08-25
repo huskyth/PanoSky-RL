@@ -1,8 +1,6 @@
 import random
 from math import cos, sin, sqrt, pi, asin, acos, ceil
 
-from numpy import Inf
-
 from onpolicy.envs.drone.weapons.entries.config.global_config import GameConfig
 from onpolicy.utils.format_logger import AppLogger
 
@@ -287,5 +285,5 @@ def cal_threat_level(weapon_position, uav_velocity, uav_velocity_direction, uav_
     distance_variation = cal_projection_velocity(weapon_position, uav_velocity, uav_velocity_direction, uav_position)
     logger.info("uav_position = {}, self.position = {},distance_variation = {}".format(uav_position, weapon_position,
                                                                                        distance_variation))
-    if distance == 0: return Inf
+    if distance == 0: return float('inf')
     return distance_variation / distance
