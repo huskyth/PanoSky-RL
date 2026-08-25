@@ -2,10 +2,12 @@ import copy
 import json
 import math
 import random
+import threading
 import warnings
 
 import os
 import numpy as np
+import requests
 from gym import spaces
 
 
@@ -142,6 +144,9 @@ class MultiUavEnv:
 
         # ===== 物理步长 =====
         self.DT = 0.1
+
+        # 在 MultiUavEnv 类的 __init__ 中添加开关
+        self.enable_visualization = True  # 调试时打开，训练时可关闭
 
         logger.info(
             f"PID-{os.getpid()}, 【{'训练' if self.mode == 'train' else '评估'}】环境（武器位置已知）初始化完成，"
@@ -395,6 +400,52 @@ class MultiUavEnv:
         self.set_reward(last_state, actions, last_target, lat_stat)
 
         ret_reward = [[x] for x in self.reward]
+
+        # 在 step 方法返回之前加入：
+        if self.enable_visualization:
+            try:
+                # 构造状态字典
+                uavs_data = []
+                for i, uav in enumerate(self.raw_uavs):
+                    uavs_data.append({
+                        "pos": uav.position[:2],  # 只取 x,y
+                        "vel": uav.velocity[:2],
+                        "is_targeted": (self._get_game_target_idx() == i),
+                        "status": 0 if uav.status == UAVState.ALIVE else 1,
+                        "dist": compute_distance(self.weapon, uav.position)
+                    })
+
+                # 获取武器状态
+                weapon_state = EnvironmentInterface.get_weapon_state()  # 0-4
+                tuning_time = 0
+                if hasattr(EnvironmentInterface, 'get_tuning_time'):
+                    tuning_time = EnvironmentInterface.get_tuning_time()
+
+                state_payload = {
+                    "uavs": uavs_data,
+                    "weapon": {
+                        "pos": self.weapon[:2],
+                        "top_project_position": EnvironmentInterface.get_top_project_position(),
+                        "state": weapon_state
+                    },
+                    "target": self.target[:2],
+                    "bullets": [],  # 如果有子弹列表，可以传爆炸半径和位置
+                    "rewards": self.reward if isinstance(self.reward, list) else [0, 0],
+                    "step": self._episode_steps,
+                    "info": {
+                        "target_id": self._get_game_target_idx(),
+                        "tuning_time": tuning_time
+                    }
+                }
+
+                # 用新线程发送，不阻塞训练
+                threading.Thread(target=lambda: requests.post(
+                    'http://127.0.0.1:5000/api/update',
+                    json=state_payload,
+                    timeout=0.1
+                ), daemon=True).start()
+            except Exception as e:
+                pass  # 可视化失败不影响训练
         return self.get_state_of_all_uav(), ret_reward, self.is_terminal, {i: {'individual_reward': self.reward[i]} for
                                                                            i in range(self.n_total_uavs)}
 

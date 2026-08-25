@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>无人机突防环境 - 实时调试面板</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a2e; margin: 0; display: flex; color: #eee; height: 100vh; }
+        #container { display: flex; width: 100%; height: 100%; }
+        #canvas-wrapper { flex: 3; background: #16213e; display: flex; justify-content: center; align-items: center; }
+        #canvas-wrapper canvas { background: #0f3460; border-radius: 8px; box-shadow: 0 0 20px rgba(0,0,0,0.5); width: 100%; height: 100%; max-width: 800px; max-height: 800px; }
+        #panel { flex: 1.2; background: #1a1a2e; padding: 20px; overflow-y: auto; border-left: 2px solid #0f3460; font-size: 14px; }
+        .log-title { color: #e94560; font-weight: bold; border-bottom: 1px solid #333; padding-bottom: 8px; margin-bottom: 15px; }
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .info-item { background: #16213e; padding: 10px; border-radius: 6px; border-left: 4px solid #e94560; }
+        .info-label { color: #aaa; font-size: 11px; text-transform: uppercase; }
+        .info-value { font-size: 18px; font-weight: bold; color: #fff; }
+        .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; }
+        .badge-danger { background: #e94560; color: #fff; }
+        .badge-warning { background: #f5a623; color: #000; }
+        .badge-success { background: #2ecc71; color: #fff; }
+        .badge-info { background: #3498db; color: #fff; }
+        .status-list { list-style: none; padding: 0; margin: 5px 0; }
+        .status-list li { padding: 4px 0; border-bottom: 1px solid #222; font-size: 13px; }
+        #reward-chart { background: #0a0a1a; border-radius: 4px; padding: 5px; margin-top: 10px; width: 100%; height: 80px; }
+        .legend { display: flex; gap: 15px; margin-top: 10px; flex-wrap: wrap; }
+        .legend-item { display: flex; align-items: center; gap: 5px; font-size: 12px; }
+        .color-box { width: 12px; height: 12px; border-radius: 50%; }
+        .step-control { margin-top: 15px; background: #0f3460; padding: 10px; border-radius: 6px; display: flex; gap: 10px; align-items: center; }
+        .step-control button { background: #e94560; border: none; color: white; padding: 6px 15px; border-radius: 4px; cursor: pointer; }
+    </style>
+</head>
+<body>
+<div id="container">
+    <!-- 左边：Canvas 绘图区 -->
+    <div id="canvas-wrapper">
+        <canvas id="gameCanvas" width="800" height="800"></canvas>
+    </div>
+    <!-- 右边：状态监控面板 -->
+    <div id="panel">
+        <div class="log-title">🎯 战场态势 & 训练指标</div>
+
+        <div class="info-grid">
+            <div class="info-item"><div class="info-label">步数</div><div class="info-value" id="stepVal">0</div></div>
+            <div class="info-item"><div class="info-label">武器状态</div><div class="info-value" id="weaponState">NORMAL</div></div>
+            <div class="info-item"><div class="info-label">锁定目标</div><div class="info-value" id="targetId">None</div></div>
+            <div class="info-item"><div class="info-label">调弦剩余(s)</div><div class="info-value" id="tuningTime">0.0</div></div>
+        </div>
+
+        <div style="margin-top: 15px;">
+            <div class="log-title">🤖 无人机状态</div>
+            <ul class="status-list" id="uavStatus">
+                <li>等待数据...</li>
+            </ul>
+        </div>
+
+        <div style="margin-top: 15px;">
+            <div class="log-title">💰 奖励分解 (近10步)</div>
+            <canvas id="rewardChart" width="300" height="80"></canvas>
+            <div id="rewardDetail" style="font-size:12px; color:#aaa; margin-top:5px;">诱饵: 0.0 | 刺客: 0.0</div>
+        </div>
+
+        <div class="legend">
+            <div class="legend-item"><span class="color-box" style="background:#3498db;"></span> 诱饵机</div>
+            <div class="legend-item"><span class="color-box" style="background:#e94560;"></span> 突防机</div>
+            <div class="legend-item"><span class="color-box" style="background:#f1c40f;"></span> 目标点</div>
+            <div class="legend-item"><span class="color-box" style="background:#e67e22;"></span> 爆炸半径</div>
+        </div>
+
+        <div class="step-control">
+            <span>刷新频率: 1s</span>
+            <button onclick="toggleAutoRefresh()">暂停/继续</button>
+            <button onclick="manualRefresh()">刷新一次</button>
+        </div>
+        <div style="margin-top:10px; font-size:11px; color:#555;">* 炮口红线 = 调弦方向 | 绿圈 = 爆炸半径 (命中时显示)</div>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    let autoRefresh = true;
+    let rewardHistory = [];
+
+    function toggleAutoRefresh() { autoRefresh = !autoRefresh; }
+
+    function manualRefresh() { fetchDataAndRender(); }
+
+    // 主渲染函数
+    function render(state) {
+        ctx.clearRect(0, 0, 800, 800);
+
+        // 1. 绘制参考网格 (地图 1000x1000)
+        const scale = 0.8; // 缩放系数
+        const offsetX = 100; // 留边距
+        const offsetY = 100;
+
+        function toCanvasX(px) { return offsetX + (px / 1000) * 600; }
+        function toCanvasY(py) { return offsetY + (600 - (py / 1000) * 600); } // Y轴反向
+
+        // 网格
+        ctx.strokeStyle = '#2a3a5c';
+        ctx.lineWidth = 0.5;
+        for (let i = 0; i <= 10; i++) {
+            const x = offsetX + (i / 10) * 600;
+            ctx.beginPath(); ctx.moveTo(x, offsetY); ctx.lineTo(x, offsetY + 600); ctx.stroke();
+            const y = offsetY + (i / 10) * 600;
+            ctx.beginPath(); ctx.moveTo(offsetX, y); ctx.lineTo(offsetX + 600, y); ctx.stroke();
+        }
+
+        // 2. 绘制目标点 (Target)
+        const target = state.target || [500, 500];
+        ctx.beginPath();
+        ctx.arc(toCanvasX(target[0]), toCanvasY(target[1]), 10, 0, 2*Math.PI);
+        ctx.fillStyle = '#f1c40f';
+        ctx.shadowColor = '#f1c40f'; ctx.shadowBlur = 15;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'white'; ctx.font = '12px Arial'; ctx.fillText('目标', toCanvasX(target[0])-15, toCanvasY(target[1])-15);
+
+        // 3. 绘制武器位置
+        const weapon = state.weapon;
+        const wPos = weapon.pos || [0, 0];
+        ctx.beginPath();
+        ctx.arc(toCanvasX(wPos[0]), toCanvasY(wPos[1]), 15, 0, 2*Math.PI);
+        ctx.fillStyle = '#e67e22';
+        ctx.fill();
+        ctx.fillStyle = 'white'; ctx.fillText('武器', toCanvasX(wPos[0])-15, toCanvasY(wPos[1])-25);
+
+        // 4. 绘制炮口指向 (红线) 和 调弦扇区
+        const topProj = weapon.top_project_position || [wPos[0]+1, wPos[1]];
+        ctx.beginPath();
+        ctx.moveTo(toCanvasX(wPos[0]), toCanvasY(wPos[1]));
+        ctx.lineTo(toCanvasX(topProj[0]), toCanvasY(topProj[1]));
+        ctx.strokeStyle = '#ff0000';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        // 5. 绘制无人机
+        const uavs = state.uavs || [];
+        uavs.forEach((uav, index) => {
+            const isDecoy = (index === 0);
+            const color = isDecoy ? '#3498db' : '#e94560';
+            const cx = toCanvasX(uav.pos[0]);
+            const cy = toCanvasY(uav.pos[1]);
+
+            // 机身阴影
+            ctx.shadowColor = color; ctx.shadowBlur = 20;
+            ctx.beginPath();
+            ctx.arc(cx, cy, 12, 0, 2*Math.PI);
+            ctx.fillStyle = color;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // 外围光环 (被瞄准状态)
+            if (uav.is_targeted) {
+                ctx.beginPath();
+                ctx.arc(cx, cy, 18, 0, 2*Math.PI);
+                ctx.strokeStyle = '#ff0000';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+            // 标签
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 12px Arial';
+            ctx.fillText(`UAV${index} ${isDecoy ? '(诱)' : '(刺)'}`, cx-20, cy-20);
+            // 速度矢量（小尾巴）
+            if (uav.vel && Math.abs(uav.vel[0]) > 0.1 || Math.abs(uav.vel[1]) > 0.1) {
+                ctx.beginPath();
+                ctx.moveTo(cx, cy);
+                ctx.lineTo(cx + uav.vel[0]*0.5, cy - uav.vel[1]*0.5);
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+        });
+
+        // 6. 绘制子弹/爆炸半径 (如果有)
+        const bullets = state.bullets || [];
+        bullets.forEach(b => {
+            const bx = toCanvasX(b.pos[0]);
+            const by = toCanvasY(b.pos[1]);
+            // 爆炸半径圈
+            if (b.explosion_radius > 0) {
+                ctx.beginPath();
+                ctx.arc(bx, by, b.explosion_radius * 0.6, 0, 2*Math.PI);
+                ctx.strokeStyle = '#2ecc71';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.fillStyle = 'rgba(46, 204, 113, 0.1)';
+                ctx.fill();
+            }
+            // 子弹点
+            ctx.beginPath();
+            ctx.arc(bx, by, 3, 0, 2*Math.PI);
+            ctx.fillStyle = '#e67e22';
+            ctx.fill();
+        });
+
+        // 7. 更新右侧面板数据
+        document.getElementById('stepVal').innerText = state.step || 0;
+        const stateMap = ['NORMAL', 'TUNING', 'CAPTURE', 'FIRE', 'RELOAD'];
+        const wState = state.weapon.state || 0;
+        document.getElementById('weaponState').innerHTML = `<span class="badge badge-danger">${stateMap[wState] || 'UNKNOWN'}</span>`;
+
+        const targetId = state.info.target_id;
+        document.getElementById('targetId').innerText = targetId !== undefined ? `UAV${targetId}` : 'None';
+        document.getElementById('tuningTime').innerText = (state.info.tuning_time || 0).toFixed(2);
+
+        // 更新 UAV 列表
+        let uavHtml = '';
+        uavs.forEach((u, i) => {
+            const status = u.status === 0 ? '✅ 存活' : '💀 坠毁';
+            const attacked = u.is_targeted ? '🔴 被锁定' : '⚪ 安全';
+            uavHtml += `<li><b>UAV${i}</b> | ${status} | ${attacked} | 距离武器: ${(u.dist || 0).toFixed(0)}m</li>`;
+        });
+        document.getElementById('uavStatus').innerHTML = uavHtml || '<li>无数据</li>';
+
+        // 更新奖励
+        const rewards = state.rewards || [0, 0];
+        document.getElementById('rewardDetail').innerHTML = `诱饵: ${rewards[0].toFixed(2)} | 刺客: ${rewards[1].toFixed(2)}`;
+
+        // 更新奖励曲线 (极简)
+        rewardHistory.push(rewards[0]);
+        if (rewardHistory.length > 50) rewardHistory.shift();
+        drawRewardChart();
+    }
+
+    function drawRewardChart() {
+        const c = document.getElementById('rewardChart');
+        const ctxChart = c.getContext('2d');
+        ctxChart.clearRect(0, 0, c.width, c.height);
+        if (rewardHistory.length < 2) return;
+        ctxChart.strokeStyle = '#3498db';
+        ctxChart.lineWidth = 2;
+        ctxChart.beginPath();
+        const maxVal = Math.max(2, ...rewardHistory.map(Math.abs));
+        for (let i = 0; i < rewardHistory.length; i++) {
+            const x = (i / rewardHistory.length) * c.width;
+            const y = c.height / 2 - (rewardHistory[i] / maxVal) * (c.height / 2 - 5);
+            if (i === 0) ctxChart.moveTo(x, y);
+            else ctxChart.lineTo(x, y);
+        }
+        ctxChart.stroke();
+        ctxChart.strokeStyle = '#e94560'; // 刺客曲线
+        ctxChart.beginPath();
+        // 简单画个对应刺客的曲线（假设 rewardHistory2 存了第二个）
+        // 略，避免过度复杂
+    }
+
+    // 数据获取与轮询
+    async function fetchDataAndRender() {
+        try {
+            const resp = await fetch('/api/state');
+            const data = await resp.json();
+            render(data);
+        } catch(e) {
+            console.warn('无法连接服务器，请确保 visualizer_server.py 已启动', e);
+        }
+    }
+
+    setInterval(() => {
+        if (autoRefresh) fetchDataAndRender();
+    }, 1000);
+
+    // 启动时立即渲染一次
+    window.onload = () => {
+        fetchDataAndRender();
+    };
+</script>
+</body>
+</html>
