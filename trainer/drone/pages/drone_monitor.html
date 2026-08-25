@@ -3,91 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UAV 突防回放系统（自适应缩放）</title>
+    <title>UAV 突防回放系统</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <style>
         body { margin: 0; overflow: hidden; background: #0f172a; font-family: sans-serif; }
         #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
-        #controls {
-            position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 10;
-            padding: 12px 24px;
-            border-radius: 12px;
-            display: none;
-            align-items: center;
-            gap: 16px;
-            background: rgba(15, 23, 42, 0.9);
-            border: 1px solid #38bdf8;
-        }
-        #controls button {
-            background: transparent;
-            border: 1px solid #38bdf8;
-            color: #38bdf8;
-            padding: 4px 12px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 13px;
-        }
+        .glass-panel { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(12px); border: 1px solid rgba(56, 189, 248, 0.2); box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+        #controls { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10; padding: 12px 24px; border-radius: 12px; display: none; align-items: center; gap: 16px; background: rgba(15, 23, 42, 0.9); border: 1px solid #38bdf8; }
+        #controls button { background: transparent; border: 1px solid #38bdf8; color: #38bdf8; padding: 4px 12px; border-radius: 6px; cursor: pointer; }
         #controls button:hover { background: rgba(56, 189, 248, 0.2); }
         #controls input[type="range"] { width: 300px; }
-        #file-btn {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            z-index: 20;
-            padding: 8px 16px;
-            background: #0ea5e9;
-            border: none;
-            border-radius: 8px;
-            color: white;
-            cursor: pointer;
-            font-weight: bold;
-        }
+        #file-btn { position: absolute; top: 20px; right: 20px; z-index: 20; padding: 8px 16px; background: #0ea5e9; border: none; border-radius: 8px; color: white; cursor: pointer; font-weight: bold; }
         #file-btn:hover { background: #0284c7; }
         #file-input { display: none; }
-        #log {
-            position: absolute;
-            bottom: 100px;
-            left: 20px;
-            z-index: 20;
-            background: rgba(0,0,0,0.7);
-            color: #0f0;
-            padding: 8px;
-            font-size: 12px;
-            max-height: 150px;
-            overflow-y: auto;
-            width: 300px;
-            border-radius: 4px;
-            font-family: monospace;
-            display: none;
-        }
-        .step-label {
-            font-size: 13px;
-            color: #e6edf3;
-            font-weight: bold;
-            min-width: 80px;
-            text-align: center;
-            font-family: monospace;
-        }
-        #controls select {
-            background: #0d1117;
-            color: #e6edf3;
-            border: 1px solid #30363d;
-            border-radius: 4px;
-            padding: 2px 6px;
-            font-size: 12px;
-        }
-        #fit-btn {
-            background: #238636 !important;
-            border-color: #238636 !important;
-            color: white !important;
-        }
-        #fit-btn:hover { background: #2ea043 !important; }
+        #log { position: absolute; bottom: 100px; left: 20px; z-index: 20; background: rgba(0,0,0,0.7); color: #0f0; padding: 8px; font-size: 12px; max-height: 150px; overflow-y: auto; width: 300px; border-radius: 4px; font-family: monospace; display: none; }
     </style>
 </head>
 <body>
@@ -97,11 +28,10 @@
     <div id="controls">
         <button id="play-btn">▶</button>
         <button id="reset-btn">⏮</button>
-        <span class="step-label" id="step-label">0 / 0</span>
+        <span id="step-label">0 / 0</span>
         <input type="range" id="timeline" min="0" max="0" value="0">
         <select id="speed-select"><option value="1">1x</option><option value="2">2x</option><option value="5">5x</option></select>
-        <span id="frame-info" style="font-size:11px;color:#8b949e;">步数: 0</span>
-        <button id="fit-btn">🔍 适配视野</button>
+        <span id="frame-info">步数: 0</span>
     </div>
     <div id="log"></div>
 
@@ -113,8 +43,9 @@
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x0f172a);
 
-        const camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 500000);
+        const camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 2000);
         camera.position.set(120, 80, 120);
+        camera.lookAt(0, 0, 0);
 
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(container.clientWidth, container.clientHeight);
@@ -134,31 +65,21 @@
         dirLight.position.set(50, 100, 50);
         scene.add(dirLight);
 
+        // ---- 坐标轴 ----
+        const axesHelper = new THREE.AxesHelper(80);
+        scene.add(axesHelper);
+
+        // ---- 地面网格 ----
+        const gridHelper = new THREE.GridHelper(400, 20, 0x1e293b, 0x1e293b);
+        gridHelper.position.y = -0.1;
+        scene.add(gridHelper);
+
         // ---- 动态实体容器 ----
         const entityGroup = new THREE.Group();
         scene.add(entityGroup);
+
         const bulletGroup = new THREE.Group();
         scene.add(bulletGroup);
-
-        // ---- 坐标轴和地面网格（动态更新） ----
-        let axesHelper = null;
-        let gridHelper = null;
-
-        function updateHelpers(scale) {
-            // 移除旧的
-            if (axesHelper) { scene.remove(axesHelper); axesHelper = null; }
-            if (gridHelper) { scene.remove(gridHelper); gridHelper = null; }
-            // 根据缩放因子调整大小
-            const size = Math.max(200, scale * 10);
-            axesHelper = new THREE.AxesHelper(size);
-            scene.add(axesHelper);
-            gridHelper = new THREE.GridHelper(size * 2, 20, 0x1e293b, 0x1e293b);
-            gridHelper.position.y = -0.1;
-            scene.add(gridHelper);
-        }
-
-        // ---- 全局缩放因子 ----
-        let globalScale = 1;
 
         // ---- 工具函数 ----
         function clearEntities() {
@@ -176,22 +97,21 @@
             }
         }
 
-        // ---- 创建无人机（带缩放） ----
-        function createDrone(pos, color, scale) {
-            const s = Math.max(0.5, scale);
+        // ---- 创建无人机 ----
+        function createDrone(pos, color, label) {
             const g = new THREE.Group();
             const body = new THREE.Mesh(
-                new THREE.SphereGeometry(2 * s, 8, 8),
+                new THREE.SphereGeometry(2, 8, 8),
                 new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.3 })
             );
             g.add(body);
             for (let i=0; i<4; i++) {
                 const prop = new THREE.Mesh(
-                    new THREE.BoxGeometry(3 * s, 0.1 * s, 0.3 * s),
+                    new THREE.BoxGeometry(3, 0.1, 0.3),
                     new THREE.MeshStandardMaterial({ color: 0xffffff })
                 );
                 const angle = i * Math.PI / 2;
-                prop.position.set(Math.cos(angle)*2.2*s, 1.5*s, Math.sin(angle)*2.2*s);
+                prop.position.set(Math.cos(angle)*2.2, 1.5, Math.sin(angle)*2.2);
                 prop.userData.rotSpeed = 0.2 + Math.random()*0.1;
                 g.add(prop);
             }
@@ -200,78 +120,110 @@
             return g;
         }
 
-        // ---- 创建武器（带缩放） ----
-        function createWeapon(pos, aimPos, scale) {
-            const s = Math.max(0.5, scale);
+        // ---- 创建武器（整体化，无散落） ----
+        function createWeapon(pos, aimPos) {
             const g = new THREE.Group();
+
+            // ---- 武器主体 ----
             // 底座
             const base = new THREE.Mesh(
-                new THREE.CylinderGeometry(3 * s, 4 * s, 1.5 * s, 8),
-                new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0xd97706, emissiveIntensity: 0.1 })
+                new THREE.CylinderGeometry(3, 4, 1.5, 8),
+                new THREE.MeshStandardMaterial({
+                    color: 0xf59e0b,
+                    emissive: 0xd97706,
+                    emissiveIntensity: 0.1
+                })
             );
-            base.position.set(0, 0.8 * s, 0);
+            base.position.set(0, 0.8, 0);
             g.add(base);
-            // 炮塔
+
+            // 炮塔（球体）
             const turret = new THREE.Mesh(
-                new THREE.SphereGeometry(2 * s, 8, 8),
-                new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0xd97706, emissiveIntensity: 0.05 })
+                new THREE.SphereGeometry(2, 8, 8),
+                new THREE.MeshStandardMaterial({
+                    color: 0xf59e0b,
+                    emissive: 0xd97706,
+                    emissiveIntensity: 0.05
+                })
             );
-            turret.position.set(0, 2.2 * s, 0);
+            turret.position.set(0, 2.2, 0);
             g.add(turret);
+
             // 炮管
             const barrel = new THREE.Mesh(
-                new THREE.CylinderGeometry(0.4 * s, 0.6 * s, 4 * s, 6),
-                new THREE.MeshStandardMaterial({ color: 0x475569 })
+                new THREE.CylinderGeometry(0.4, 0.6, 4, 6),
+                new THREE.MeshStandardMaterial({
+                    color: 0x475569,
+                    metalness: 0.9,
+                    roughness: 0.2
+                })
             );
             barrel.rotation.x = Math.PI / 2;
-            barrel.position.set(0, 2.2 * s, 3 * s);
+            barrel.position.set(0, 2.2, 3);
             g.add(barrel);
 
+            // 设置武器位置
             g.position.copy(pos);
             entityGroup.add(g);
 
-            // ---- 红色瞄准线（固定长度相对缩放） ----
+            // ---- 红色瞄准线（固定长度 30，只旋转不伸缩） ----
             if (aimPos) {
                 const start = pos.clone();
+
+                // 计算从武器到瞄准点的方向向量（归一化）
                 const direction = new THREE.Vector3()
                     .copy(aimPos)
                     .sub(pos);
-                if (direction.length() > 0.001) direction.normalize();
-                else direction.set(0, 0, 1);
-                const fixedLength = 30 * s;  // 长度随缩放
+
+                // 如果方向向量长度不为零，归一化
+                if (direction.length() > 0.001) {
+                    direction.normalize();
+                } else {
+                    // 如果方向为零向量，默认指向 Z 正方向
+                    direction.set(0, 0, 1);
+                }
+
+                // 固定长度 30
+                const fixedLength = 30;
                 const end = pos.clone().add(direction.multiplyScalar(fixedLength));
 
+                // 红色瞄准线
                 const lineGeo = new THREE.BufferGeometry().setFromPoints([start, end]);
-                const lineMat = new THREE.LineBasicMaterial({ color: 0xff0000 });
+                const lineMat = new THREE.LineBasicMaterial({
+                    color: 0xff0000,
+                    linewidth: 2
+                });
                 const line = new THREE.Line(lineGeo, lineMat);
                 entityGroup.add(line);
 
                 // 弦顶标记（黄色小球）
                 const dot = new THREE.Mesh(
-                    new THREE.SphereGeometry(0.6 * s, 6, 6),
-                    new THREE.MeshBasicMaterial({ color: 0xffff00 })
+                    new THREE.SphereGeometry(0.6, 6, 6),
+                    new THREE.MeshBasicMaterial({
+                        color: 0xffff00
+                    })
                 );
                 dot.position.copy(end);
                 entityGroup.add(dot);
             }
+
             return g;
         }
 
-        // ---- 创建目标（带缩放） ----
-        function createTarget(pos, scale) {
-            const s = Math.max(0.5, scale);
+        // ---- 创建目标 ----
+        function createTarget(pos) {
             const g = new THREE.Group();
             const box = new THREE.Mesh(
-                new THREE.BoxGeometry(3 * s, 2 * s, 4 * s),
+                new THREE.BoxGeometry(3, 2, 4),
                 new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0xdc2626 })
             );
-            box.position.set(0, 1.5 * s, 0);
+            box.position.set(0, 1.5, 0);
             g.add(box);
             const marker = new THREE.Mesh(
-                new THREE.SphereGeometry(0.8 * s, 6, 6),
+                new THREE.SphereGeometry(0.8, 6, 6),
                 new THREE.MeshBasicMaterial({ color: 0xef4444 })
             );
-            marker.position.set(0, 3.5 * s, 0);
+            marker.position.set(0, 3.5, 0);
             g.add(marker);
             g.position.copy(pos);
             entityGroup.add(g);
@@ -282,32 +234,20 @@
         function renderFrame(data) {
             clearEntities();
             if (!data) return;
-            const scale = globalScale;
 
             // 1. 无人机
             const uavs = data.uva_state || data.uavs || [];
             uavs.forEach((u, i) => {
-                let pos = null;
-                if (u.position && Array.isArray(u.position) && u.position.length >= 3) {
-                    pos = new THREE.Vector3(u.position[0], u.position[1], u.position[2]);
-                } else if (u.x !== undefined && u.z !== undefined) {
-                    pos = new THREE.Vector3(u.x, u.altitude || 0, u.z);
-                }
-                if (pos) {
-                    const color = (i === 0) ? 0x38bdf8 : 0xf0883e;
-                    createDrone(pos, color, scale);
-                }
+                const pos = new THREE.Vector3(u.position[0], u.position[1], u.position[2]);
+                const color = (i === 0) ? 0x38bdf8 : 0xf0883e;
+                createDrone(pos, color, `UAV${i}`);
             });
 
             // 2. 武器
             const w = data.weapon || data.weapon_data;
             if (w) {
-                let pos = null;
-                if (w.position && Array.isArray(w.position) && w.position.length >= 3) {
-                    pos = new THREE.Vector3(w.position[0], w.position[1], w.position[2]);
-                } else if (w.x !== undefined && w.z !== undefined) {
-                    pos = new THREE.Vector3(w.x, w.altitude || 0, w.z);
-                }
+                const wPos = w.position ? w.position : w;
+                const pos = new THREE.Vector3(wPos[0], wPos[1], wPos[2]);
                 let aimPos = null;
                 if (w.aim_x !== undefined) {
                     aimPos = new THREE.Vector3(w.aim_x, w.aim_y || 0, w.aim_z || 0);
@@ -318,27 +258,23 @@
                         w.top_project_position[2]
                     );
                 }
-                if (pos) createWeapon(pos, aimPos, scale);
+                createWeapon(pos, aimPos);
             }
 
             // 3. 目标
             const t = data.target || data.target_point;
             if (t) {
-                let pos = null;
-                if (t.position && Array.isArray(t.position) && t.position.length >= 3) {
-                    pos = new THREE.Vector3(t.position[0], t.position[1], t.position[2]);
-                } else if (t.x !== undefined && t.z !== undefined) {
-                    pos = new THREE.Vector3(t.x, t.altitude || 0, t.z);
-                }
-                if (pos) createTarget(pos, scale);
+                const tPos = t.position ? t.position : t;
+                const pos = new THREE.Vector3(tPos[0], tPos[1], tPos[2]);
+                createTarget(pos);
             }
 
-            // 4. 子弹
+            // 4. 子弹（橙色，与黄色弦顶区分）
             const bullets = data.bullets || [];
             bullets.forEach(b => {
-                const pos = new THREE.Vector3(b.x || 0, b.y || 0, b.z || 0);
+                const pos = new THREE.Vector3(b.x, b.y || 0, b.z || 0);
                 const sphere = new THREE.Mesh(
-                    new THREE.SphereGeometry(0.8 * scale, 6, 6),
+                    new THREE.SphereGeometry(0.8, 6, 6),
                     new THREE.MeshBasicMaterial({ color: 0xff8800 })
                 );
                 sphere.position.copy(pos);
@@ -347,140 +283,7 @@
         }
 
         // =============================================
-        // 2. 自动适配视野 & 计算缩放
-        // =============================================
-        function computeGlobalScale(dataArray) {
-            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
-            dataArray.forEach(d => {
-                const uavs = d.uva_state || d.uavs || [];
-                uavs.forEach(u => {
-                    let pos;
-                    if (u.position && Array.isArray(u.position) && u.position.length>=3) pos = u.position;
-                    else if (u.x !== undefined && u.z !== undefined) pos = [u.x, u.altitude||0, u.z];
-                    if (pos) {
-                        minX = Math.min(minX, pos[0]); maxX = Math.max(maxX, pos[0]);
-                        minY = Math.min(minY, pos[1]||0); maxY = Math.max(maxY, pos[1]||0);
-                        minZ = Math.min(minZ, pos[2]); maxZ = Math.max(maxZ, pos[2]);
-                    }
-                });
-                // 武器
-                const w = d.weapon || d.weapon_data;
-                if (w) {
-                    let pos;
-                    if (w.position && Array.isArray(w.position) && w.position.length>=3) pos = w.position;
-                    else if (w.x !== undefined && w.z !== undefined) pos = [w.x, w.altitude||0, w.z];
-                    if (pos) {
-                        minX = Math.min(minX, pos[0]); maxX = Math.max(maxX, pos[0]);
-                        minY = Math.min(minY, pos[1]||0); maxY = Math.max(maxY, pos[1]||0);
-                        minZ = Math.min(minZ, pos[2]); maxZ = Math.max(maxZ, pos[2]);
-                    }
-                    if (w.aim_x !== undefined) {
-                        minX = Math.min(minX, w.aim_x); maxX = Math.max(maxX, w.aim_x);
-                        minY = Math.min(minY, w.aim_y||0); maxY = Math.max(maxY, w.aim_y||0);
-                        minZ = Math.min(minZ, w.aim_z||0); maxZ = Math.max(maxZ, w.aim_z||0);
-                    }
-                }
-                // 目标
-                const t = d.target || d.target_point;
-                if (t) {
-                    let pos;
-                    if (t.position && Array.isArray(t.position) && t.position.length>=3) pos = t.position;
-                    else if (t.x !== undefined && t.z !== undefined) pos = [t.x, t.altitude||0, t.z];
-                    if (pos) {
-                        minX = Math.min(minX, pos[0]); maxX = Math.max(maxX, pos[0]);
-                        minY = Math.min(minY, pos[1]||0); maxY = Math.max(maxY, pos[1]||0);
-                        minZ = Math.min(minZ, pos[2]); maxZ = Math.max(maxZ, pos[2]);
-                    }
-                }
-                // 子弹
-                const bullets = d.bullets || [];
-                bullets.forEach(b => {
-                    minX = Math.min(minX, b.x||0); maxX = Math.max(maxX, b.x||0);
-                    minY = Math.min(minY, b.y||0); maxY = Math.max(maxY, b.y||0);
-                    minZ = Math.min(minZ, b.z||0); maxZ = Math.max(maxZ, b.z||0);
-                });
-            });
-            if (minX === Infinity) return 1;
-            const range = Math.max(maxX-minX, maxY-minY, maxZ-minZ, 1);
-            // 目标：模型基础大小约为范围的 1/80，但限制最小为1
-            return Math.max(1, range / 80);
-        }
-
-        function autoFitView(data) {
-            if (!data) return;
-            let minX = Infinity, maxX = -Infinity;
-            let minY = Infinity, maxY = -Infinity;
-            let minZ = Infinity, maxZ = -Infinity;
-
-            const uavs = data.uva_state || data.uavs || [];
-            uavs.forEach(u => {
-                let pos;
-                if (u.position && Array.isArray(u.position) && u.position.length >= 3) pos = u.position;
-                else if (u.x !== undefined && u.z !== undefined) pos = [u.x, u.altitude||0, u.z];
-                if (pos) {
-                    minX = Math.min(minX, pos[0]); maxX = Math.max(maxX, pos[0]);
-                    minY = Math.min(minY, pos[1]||0); maxY = Math.max(maxY, pos[1]||0);
-                    minZ = Math.min(minZ, pos[2]); maxZ = Math.max(maxZ, pos[2]);
-                }
-            });
-            const w = data.weapon || data.weapon_data;
-            if (w) {
-                let pos;
-                if (w.position && Array.isArray(w.position) && w.position.length >= 3) pos = w.position;
-                else if (w.x !== undefined && w.z !== undefined) pos = [w.x, w.altitude||0, w.z];
-                if (pos) {
-                    minX = Math.min(minX, pos[0]); maxX = Math.max(maxX, pos[0]);
-                    minY = Math.min(minY, pos[1]||0); maxY = Math.max(maxY, pos[1]||0);
-                    minZ = Math.min(minZ, pos[2]); maxZ = Math.max(maxZ, pos[2]);
-                }
-                if (w.aim_x !== undefined) {
-                    minX = Math.min(minX, w.aim_x); maxX = Math.max(maxX, w.aim_x);
-                    minY = Math.min(minY, w.aim_y||0); maxY = Math.max(maxY, w.aim_y||0);
-                    minZ = Math.min(minZ, w.aim_z||0); maxZ = Math.max(maxZ, w.aim_z||0);
-                }
-            }
-            const t = data.target || data.target_point;
-            if (t) {
-                let pos;
-                if (t.position && Array.isArray(t.position) && t.position.length >= 3) pos = t.position;
-                else if (t.x !== undefined && t.z !== undefined) pos = [t.x, t.altitude||0, t.z];
-                if (pos) {
-                    minX = Math.min(minX, pos[0]); maxX = Math.max(maxX, pos[0]);
-                    minY = Math.min(minY, pos[1]||0); maxY = Math.max(maxY, pos[1]||0);
-                    minZ = Math.min(minZ, pos[2]); maxZ = Math.max(maxZ, pos[2]);
-                }
-            }
-            const bullets = data.bullets || [];
-            bullets.forEach(b => {
-                minX = Math.min(minX, b.x||0); maxX = Math.max(maxX, b.x||0);
-                minY = Math.min(minY, b.y||0); maxY = Math.max(maxY, b.y||0);
-                minZ = Math.min(minZ, b.z||0); maxZ = Math.max(maxZ, b.z||0);
-            });
-
-            if (minX === Infinity) {
-                camera.position.set(120, 80, 120);
-                controls.target.set(0, 0, 0);
-                controls.update();
-                return;
-            }
-
-            const centerX = (minX + maxX) / 2;
-            const centerY = (minY + maxY) / 2;
-            const centerZ = (minZ + maxZ) / 2;
-            const range = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 100);
-            const distance = range * 1.2 + 300;
-
-            camera.position.set(
-                centerX + distance * 0.6,
-                centerY + distance * 0.6,
-                centerZ + distance * 0.6
-            );
-            controls.target.set(centerX, centerY, centerZ);
-            controls.update();
-        }
-
-        // =============================================
-        // 3. 回放控制器
+        // 2. 回放控制器（不变）
         // =============================================
         let fullData = [];
         let currentIndex = 0;
@@ -494,14 +297,11 @@
         const resetBtn = document.getElementById('reset-btn');
         const speedSelect = document.getElementById('speed-select');
         const frameInfo = document.getElementById('frame-info');
-        const fitBtn = document.getElementById('fit-btn');
 
         function goToStep(idx) {
             if (!fullData.length || idx < 0 || idx >= fullData.length) return;
             currentIndex = idx;
-            const d = fullData[idx];
-            renderFrame(d);
-            autoFitView(d);
+            renderFrame(fullData[idx]);
             timeline.value = idx;
             stepLabel.textContent = `${idx} / ${fullData.length-1}`;
             frameInfo.textContent = `步数: ${fullData.length}`;
@@ -532,10 +332,9 @@
             speed = parseFloat(speedSelect.value);
             if(isPlaying) { stopPlayback(); startPlayback(); }
         });
-        fitBtn.addEventListener('click', () => { if(fullData.length) autoFitView(fullData[currentIndex]); });
 
         // =============================================
-        // 4. 文件加载
+        // 3. 文件加载
         // =============================================
         const fileBtn = document.getElementById('file-btn');
         const fileInput = document.getElementById('file-input');
@@ -566,17 +365,12 @@
                         fullData = [data];
                     }
                     if (fullData.length === 0) { log('数据为空'); return; }
-                    // 计算全局缩放因子
-                    globalScale = computeGlobalScale(fullData);
-                    log(`计算缩放因子: ${globalScale.toFixed(2)}`);
-                    // 更新辅助工具（坐标轴、网格）
-                    updateHelpers(globalScale);
                     log(`加载 ${fullData.length} 步数据`);
                     timeline.max = fullData.length - 1;
                     timeline.value = 0;
                     document.getElementById('controls').style.display = 'flex';
                     goToStep(0);
-                    log('✅ 数据加载成功，自动适配视野');
+                    log('✅ 数据加载成功');
                 } catch(err) {
                     log('❌ JSON 解析失败: ' + err.message);
                     alert('解析失败: ' + err.message);
@@ -587,7 +381,7 @@
         });
 
         // =============================================
-        // 5. 窗口自适应 & 动画循环
+        // 4. 窗口自适应 & 动画循环
         // =============================================
         window.addEventListener('resize', () => {
             const w = container.clientWidth, h = container.clientHeight;
@@ -603,12 +397,45 @@
         }
         animate();
 
-        // 默认加载模拟数据（可注释掉）
-        // function generateMockData() { ... }
-        // setTimeout(() => { ... }, 500);
+        // =============================================
+        // 5. 模拟数据（修正高度，使场景可见）
+        // =============================================
+        function generateMockData() {
+            const steps = 30;
+            const data = [];
+            for (let i=0; i<steps; i++) {
+                const t = i * 0.1;
+                data.push({
+                    _episode_steps: i,
+                    uva_state: [
+                        { position: [20 + i*0.8, 15 + Math.sin(i*0.2)*8, 20 + Math.sin(i*0.15)*4], velocity: [5,0,1], id: 'UAV-001' },
+                        { position: [-20 + i*0.5, 10 + Math.cos(i*0.25)*10, 30 + Math.cos(i*0.1)*6], velocity: [-3,0,0.5], id: 'UAV-002' }
+                    ],
+                    weapon: {
+                        position: [-40, 0, -40],   // 高度改为 0（地面）
+                        state: Math.floor(i/8)%3,
+                        tuning_time: Math.max(0, 1.5 - i*0.04),
+                        aim_x: -40 + Math.sin(i*0.08)*25,
+                        aim_y: 2 + Math.sin(i*0.1)*1.5,   // 瞄准点高度在 0.5~3.5 之间变化
+                        aim_z: -40 + Math.cos(i*0.08)*25
+                    },
+                    target: { position: [30, 0, -30] },   // 高度 0
+                    bullets: (i % 5 === 0) ? [{ x: -40 + Math.sin(i*0.08)*25*0.4, y: 1, z: -40 + Math.cos(i*0.08)*25*0.4 }] : []
+                });
+            }
+            return data;
+        }
 
-        console.log('✅ 系统已启动，点击右上角「加载JSON」选择您的数据文件');
-        console.log('💡 加载后会自动计算缩放因子，让无人机不再像星星');
+        setTimeout(() => {
+            const mock = generateMockData();
+            fullData = mock;
+            timeline.max = fullData.length - 1;
+            document.getElementById('controls').style.display = 'flex';
+            goToStep(0);
+            log('📊 已加载模拟数据（30步，武器高度0，目标高度0）');
+        }, 500);
+
+        console.log('✅ 系统已启动（武器/目标在地面，红色=炮口指向，黄色=弦顶，橙色=子弹）');
     </script>
 </body>
 </html>
