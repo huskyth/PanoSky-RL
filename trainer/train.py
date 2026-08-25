@@ -1,5 +1,8 @@
+import configparser
 import os
 import time
+from pathlib import Path
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -40,6 +43,8 @@ class PPOArgs:
 
     save_interval = 500_000
     log_interval = 50
+
+    config_name = 'th_demo.ini'
 
 
 # ==========================================
@@ -125,16 +130,16 @@ def train():
     # ==========================================
     # 修改：创建你自己的环境实例
     # ==========================================
-    # 方式一：如果有配置文件
-    # cf = load_config("path/to/config.ini")
-    # env = MultiUavEnv(rank=0, mode="train", cf=cf, episode_limit=500, is_debug=False, is_share=True)
 
+    config_path = f'drone/config/{args.config_name}'
+    cf = configparser.ConfigParser()
+    cf.read(str(config_path), encoding="utf-8")
     # 方式二：直接传入 cf 参数（需要先构造）
     # 如果你暂时没有配置文件，可以传 None，然后在 init_from_config 里用默认值
     env = MultiUavEnv(
         rank=0,
         mode="train",
-        cf=None,  # 如果你有配置文件，替换这里
+        cf=cf,  # 如果你有配置文件，替换这里
         episode_limit=500,
         is_debug=False,
         is_share=True
