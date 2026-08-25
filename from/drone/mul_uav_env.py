@@ -8,15 +8,13 @@ import os
 import numpy as np
 from gym import spaces
 
-from weapons.entries.phalanx.components.track_rader.track_rader_enum import TrackStateEnum
 from onpolicy.utils.format_logger import AppLogger, _green_log_str
-from weapons.entries.uav.uav_enum import UAVState, AttackState
-from maps.map import Map
+from .weapons.entries.uav.uav_enum import UAVState, AttackState
+from .maps.map import Map
 from onpolicy.utils.util import compute_distance
-from uav_meta_info import TrainUAV
+from .uav_meta_info import TrainUAV
 from pathlib import Path
-from weapons.interfaces.environment_interface import EnvironmentInterface
-from onpolicy.utils.math_tool import fly_from_9_selections, angle_2_radian, normalize, cal_threat_level
+from .weapons.interfaces.environment_interface import EnvironmentInterface
 
 warnings.filterwarnings('ignore')
 logger = AppLogger().get_logger()
