@@ -1,7 +1,5 @@
 import numpy as np
 
-from onpolicy.utils.math_tool import normalize
-
 
 class TrainUAV:
     def __init__(self, px, py, pz, vx, vy, vz, is_attacked_state, status):
@@ -14,7 +12,14 @@ class TrainUAV:
         return self.position + self.velocity
 
     def get_normalize_velocity(self):
-        return normalize(self.velocity)
+        """
+        归一化速度向量（使用 numpy 实现）
+        """
+        vel = np.array(self.velocity, dtype=float)
+        norm = np.linalg.norm(vel)
+        if norm == 0:
+            return [0.0, 0.0, 0.0]
+        return (vel / norm).tolist()
 
     def get_normalize_position(self, normal_):
         return (np.array(self.position) / normal_).tolist()
