@@ -13,8 +13,7 @@ import gymnasium as gym
 # ==========================================
 # 假设你的 MultiUavEnv 在 onpolicy.envs.drone 包下
 # 根据你的实际路径修改这行
-from onpolicy.envs.drone.multi_uav_env import MultiUavEnv
-from onpolicy.envs.drone.utils.config_loader import load_config  # 如果你有配置加载器
+from drone.mul_uav_env import MultiUavEnv  # 如果你的环境在 onpolicy.envs.drone 包下
 
 
 # 或者直接传入 cf 对象
