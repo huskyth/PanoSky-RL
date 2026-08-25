@@ -141,7 +141,7 @@ def train():
         mode="train",
         cf=cf,  # 如果你有配置文件，替换这里
         episode_limit=500,
-        is_debug=False,
+        is_debug=True,
         is_share=True
     )
 

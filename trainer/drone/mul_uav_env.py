@@ -28,8 +28,26 @@ if not json_path.exists():
     json_path.mkdir()
 
 
+class NumpyEncoder(json.JSONEncoder):
+    """自定义 JSON 编码器，处理 numpy 类型"""
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        if isinstance(obj, (list, tuple)):
+            return [self.default(item) for item in obj]
+        if isinstance(obj, dict):
+            return {key: self.default(value) for key, value in obj.items()}
+        return super().default(obj)
+
 class MultiUavEnv:
     def dump(self, reason):
+        return
         if self.is_debug and len(self.episode_data):
             with open(
                     str(json_path / f"{self.mode}模式下第{self.n_episode}个Epoch一共{self._episode_steps}步，【结果】：{reason.split('-')[0]}.json"),
@@ -427,23 +445,21 @@ class MultiUavEnv:
         self.episode_data.append(data_save)
 
     # 在 MultiUavEnv 类中添加
+
     def _record_step_data(self, action):
         """
         记录每步数据到 JSON，供可视化使用
-        调用位置：在 step() 返回之前调用
+        所有实体使用 position: [x, y, z] 格式
         """
         if not self.is_debug:
             return
-
-        import json
-        from pathlib import Path
 
         # ---- 1. 获取武器状态 ----
         weapon_state = 0
         tuning_time = 0.0
         aim_point = None
         try:
-            weapon_state = EnvironmentInterface.get_weapon_state()  # 0~4
+            weapon_state = EnvironmentInterface.get_weapon_state()
             if hasattr(EnvironmentInterface, 'get_tuning_time'):
                 tuning_time = EnvironmentInterface.get_tuning_time()
             if hasattr(EnvironmentInterface, 'get_aim_point'):
@@ -461,28 +477,43 @@ class MultiUavEnv:
                 to_target = np.array([50, 0, 0])
             aim_point = (np.array(self.weapon) + to_target).tolist()
 
-        # ---- 2. 构造无人机数据 ----
+        # ---- 2. 构造无人机数据（使用 position 数组） ----
         uavs_data = []
         for i, uav in enumerate(self.raw_uavs):
+            # 速度转换为 Python 列表
+            vel = uav.velocity
+            if hasattr(vel, 'tolist'):
+                vel = vel.tolist()
+            elif isinstance(vel, np.ndarray):
+                vel = vel.tolist()
+            elif vel is None:
+                vel = [0, 0, 0]
+            elif not isinstance(vel, list):
+                vel = list(vel)
+
             uavs_data.append({
                 "id": f"UAV-{i:03d}",
-                "x": float(uav.position[0]),
-                "z": float(uav.position[1]),
-                "altitude": float(uav.position[2]),
+                "position": [
+                    float(uav.position[0]),
+                    float(uav.position[1]),
+                    float(uav.position[2])
+                ],
+                "velocity": vel,
                 "speed": float(np.linalg.norm(uav.velocity)),
                 "battery": 100,
                 "is_decoy": (i == 0),
                 "is_targeted": (self._get_game_target_idx() == i),
-                "velocity": uav.velocity.tolist() if hasattr(uav.velocity, 'tolist') else uav.velocity
             })
 
-        # ---- 3. 构造武器数据 ----
+        # ---- 3. 构造武器数据（使用 position 数组） ----
         weapon_data = {
             "id": "WPN-001",
             "entityType": "weapon",
-            "x": float(self.weapon[0]),
-            "z": float(self.weapon[1]),
-            "altitude": float(self.weapon[2]),
+            "position": [
+                float(self.weapon[0]),
+                float(self.weapon[1]),
+                float(self.weapon[2])
+            ],
             "state": weapon_state,
             "tuning_time": float(tuning_time),
             "aim_x": float(aim_point[0]),
@@ -492,27 +523,27 @@ class MultiUavEnv:
             "ammo": 1000
         }
 
-        # ---- 4. 构造目标数据 ----
+        # ---- 4. 构造目标数据（使用 position 数组） ----
         target_data = {
             "id": "TGT-001",
             "entityType": "target",
-            "x": float(self.target[0]),
-            "z": float(self.target[1]),
-            "altitude": float(self.target[2]),
+            "position": [
+                float(self.target[0]),
+                float(self.target[1]),
+                float(self.target[2])
+            ],
             "threatLevel": "高",
             "targetType": "雷达站",
             "threatRange": 50
         }
 
-        # ---- 5. 【新增】获取子弹数据 ----
+        # ---- 5. 获取子弹数据 ----
         bullets_data = []
         try:
-            # 尝试从武器接口获取子弹列表
             if hasattr(EnvironmentInterface, 'get_bullets'):
                 raw_bullets = EnvironmentInterface.get_bullets()
                 if raw_bullets:
                     for b in raw_bullets:
-                        # 假设每个子弹有 position 属性或方法
                         if hasattr(b, 'position'):
                             pos = b.position
                         elif isinstance(b, (list, tuple)) and len(b) >= 3:
@@ -524,7 +555,6 @@ class MultiUavEnv:
                             "y": float(pos[1]),
                             "z": float(pos[2])
                         })
-            # 如果武器内部有 fired_bullet_list 属性，也可以直接访问（依据你的代码结构）
             elif hasattr(self, 'weapon_obj') and hasattr(self.weapon_obj, 'fired_bullet_list'):
                 for bullet in self.weapon_obj.fired_bullet_list:
                     if hasattr(bullet, 'position'):
@@ -535,7 +565,6 @@ class MultiUavEnv:
                             "z": float(pos[2])
                         })
         except Exception as e:
-            # 子弹采集失败不影响整体记录
             logger.debug(f"子弹数据采集失败: {e}")
 
         # ---- 6. 完整记录 ----
@@ -546,11 +575,32 @@ class MultiUavEnv:
             "uavs": uavs_data,
             "weapon": weapon_data,
             "target": target_data,
-            "bullets": bullets_data,  # 始终包含该字段，即使为空列表
-            "action": action.tolist() if hasattr(action, 'tolist') else action
+            "bullets": bullets_data,
+            "action": action  # NumpyEncoder 会自动处理
         }
 
-        # ---- 7. 追加到文件 ----
+        # ---- 7. 写入缓冲区（批量写入，优化 IO） ----
+        if not hasattr(self, '_step_buffer'):
+            self._step_buffer = []
+
+        self._step_buffer.append(step_record)
+
+        # 缓冲区阈值或 Episode 结束时写入
+        buffer_size = 50
+        is_episode_end = self._episode_steps >= self.max_episode_steps or any(self.is_terminal)
+
+        if len(self._step_buffer) >= buffer_size or is_episode_end:
+            self._flush_buffer_to_file()
+
+        # ---- 8. Episode 结束，记录完成日志 ----
+        if is_episode_end and self.is_debug:
+            logger.info(f"Episode {self.n_episode} 数据已保存到 {self.episode_data_file}")
+
+    def _flush_buffer_to_file(self):
+        """将缓冲区数据写入文件（使用 NumpyEncoder）"""
+        if not hasattr(self, '_step_buffer') or not self._step_buffer:
+            return
+
         file_path = Path(self.episode_data_file)
         file_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -566,10 +616,16 @@ class MultiUavEnv:
         else:
             existing = []
 
-        existing.append(step_record)
+        # 追加缓冲区数据
+        existing.extend(self._step_buffer)
 
+        # 写入文件（使用 NumpyEncoder 自动处理 numpy 类型）
         with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(existing, f, ensure_ascii=False, indent=2)
+            json.dump(existing, f, ensure_ascii=False, indent=2, cls=NumpyEncoder)
+
+        # 清空缓冲区
+        self._step_buffer = []
+
     # ============================================================
     # set_reward（分离+共享奖励，含摸鱼/自杀惩罚）
     # ============================================================
