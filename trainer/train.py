@@ -173,7 +173,8 @@ def train():
         cf=cf,
         episode_limit=500,
         is_debug=False,
-        is_share=True
+        is_share=True,
+        is_use_weapon=False
     )
 
     # ---- 获取维度 ----
