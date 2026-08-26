@@ -172,7 +172,7 @@ def train():
         mode="train",
         cf=cf,
         episode_limit=500,
-        is_debug=True,
+        is_debug=False,
         is_share=True
     )
 

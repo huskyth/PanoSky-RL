@@ -1,3 +1,5 @@
+import numpy as np
+
 from trainer.drone.weapons.entries.abstract_entry import *
 from trainer.utils.random_event import *
 from trainer.drone.weapons.entries.config.global_config import *
