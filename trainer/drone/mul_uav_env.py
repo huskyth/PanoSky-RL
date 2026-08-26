@@ -642,16 +642,17 @@ class MultiUavEnv:
         self._step_buffer = []
 
     # ============================================================
-    # set_reward（适配武器开关）
+    # set_reward（适配武器开关，无武器时无协作奖励）
     # ============================================================
     def set_reward(self, last_p, action, last_target, lat_stat):
         current_p = self.raw_uavs
         rewards = [0.0 for _ in range(self.n_total_uavs)]
         self.r_msg = ['' for _ in range(self.n_total_uavs)]
 
-        # ===== 1. 全局共享奖励（两种模式共用） =====
+        # ===== 1. 全局共享奖励 =====
+        # 【关键修改】只有使用武器时，才计算协作奖励
         r_shared_formation = 0.0
-        if self.n_total_uavs >= 2:
+        if self.is_use_weapon and self.n_total_uavs >= 2:
             alive_positions = []
             for idx in range(self.n_total_uavs):
                 if current_p[idx].status == UAVState.ALIVE:
