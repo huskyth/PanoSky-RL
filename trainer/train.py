@@ -50,8 +50,8 @@ class PPOArgs:
 
     config_name = 'th_demo.ini'
 
-    # ===== 新增：武器开关（由配置控制） =====
-    is_use_weapon = False  # 默认开启武器，可在配置中覆盖
+    # ===== 武器开关 =====
+    is_use_weapon = False  # 默认开启武器
 
 
 # ==========================================
@@ -139,7 +139,6 @@ def train():
     # ==========================================
     if SWANLAB_AVAILABLE:
         # 从环境变量读取 API Key（推荐）
-        # 如果没有设置，SwanLab 会尝试读取 ~/.swanlab/ 中的配置
         api_key = os.environ.get("SWANLAB_API_KEY", None)
         if api_key:
             sw.login(api_key=api_key)
@@ -175,24 +174,20 @@ def train():
     cf = configparser.ConfigParser()
     cf.read(str(config_path), encoding="utf-8")
 
-    # ---- 创建环境（武器开关由 args 控制） ----
+    # ---- 创建环境 ----
     env = MultiUavEnv(
         rank=0,
         mode="train",
         cf=cf,
         episode_limit=500,
-        is_debug=True,
+        is_debug=False,
         is_share=True,
-        is_use_weapon=args.is_use_weapon  # 由 PPOArgs 控制
+        is_use_weapon=args.is_use_weapon
     )
 
-    # ---- 获取维度 ----
+    # ---- 获取维度（关键修复：直接取实际观测长度） ----
     obs_list = env.reset()
-    if env.is_share:
-        obs_dim = env.observation_space[0]["linear"].shape[0]
-    else:
-        obs_dim = env.observation_space[0].shape[0]
-
+    obs_dim = len(obs_list[0])  # 直接取实际观测的长度，保证与 env.step 返回一致
     action_dim = env.action_space[0].shape[0]
     num_agents = env.n_total_uavs
     global_state_dim = obs_dim * num_agents
