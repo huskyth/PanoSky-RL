@@ -45,7 +45,7 @@ class PPOArgs:
     vf_coef = 0.5
     max_grad_norm = 0.5
 
-    save_interval = 500_000
+    save_interval = 500
     log_interval = 50
 
     config_name = 'th_demo.ini'
@@ -417,7 +417,6 @@ def train():
                     "train/model_saved": 1,
                     "train/save_step": global_step,
                 }, step=global_step)
-                sw.save(model_path)
 
     # ==========================================
     # 5. 训练结束
