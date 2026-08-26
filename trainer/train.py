@@ -181,7 +181,7 @@ def train():
         mode="train",
         cf=cf,
         episode_limit=500,
-        is_debug=False,
+        is_debug=True,
         is_share=True,
         is_use_weapon=args.is_use_weapon  # 由 PPOArgs 控制
     )
@@ -473,6 +473,5 @@ def train():
 
 
 if __name__ == "__main__":
-    sw.login(api_key="rdGaOSnlBY0KBDnNdkzja")
     torch.set_num_threads(4)
     train()
