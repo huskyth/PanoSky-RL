@@ -12,8 +12,17 @@ from collections import deque
 import gymnasium as gym
 
 # ==========================================
-# 导入你自己的环境
+# 导入 SwanLab（新增）
 # ==========================================
+try:
+    import swanlab as sw
+
+    SWANLAB_AVAILABLE = True
+except ImportError:
+    SWANLAB_AVAILABLE = False
+    print("⚠️ SwanLab 未安装，请运行: pip install swanlab")
+
+# 导入你自己的环境
 from drone.mul_uav_env import MultiUavEnv
 
 
@@ -122,6 +131,36 @@ class RolloutBuffer:
 def train():
     args = PPOArgs()
 
+    # ==========================================
+    # SwanLab 初始化（新增）
+    # ==========================================
+    if SWANLAB_AVAILABLE:
+        # 收集实验配置
+        config = {
+            "total_timesteps": args.total_timesteps,
+            "num_steps": args.num_steps,
+            "batch_size": args.batch_size,
+            "n_epochs": args.n_epochs,
+            "lr": args.lr,
+            "gamma": args.gamma,
+            "gae_lambda": args.gae_lambda,
+            "clip_coef": args.clip_coef,
+            "ent_coef": args.ent_coef,
+            "vf_coef": args.vf_coef,
+            "max_grad_norm": args.max_grad_norm,
+            "config_name": args.config_name,
+        }
+
+        sw.init(
+            project="UAV_MAPPO",
+            experiment_name=f"mappo_{time.strftime('%Y%m%d_%H%M%S')}",
+            config=config,
+            log_level="info"
+        )
+        print("✅ SwanLab 已初始化")
+    else:
+        print("⚠️ SwanLab 不可用，跳过实验跟踪")
+
     # ---- 加载配置文件 ----
     config_path = f'drone/config/{args.config_name}'
     cf = configparser.ConfigParser()
@@ -182,6 +221,12 @@ def train():
     print(f"{'Step':>10} | {'Ep Reward':>10} | {'Ep Len':>8} | {'Success Rate':>10} | {'FPS':>6}")
     print("-" * 80)
 
+    # ---- 记录训练开始到 SwanLab ----
+    if SWANLAB_AVAILABLE:
+        sw.log({
+            "train/start": 1
+        }, step=0)
+
     while global_step < args.total_timesteps:
         # ---- 阶段 A：收集数据 ----
         actor.eval()
@@ -227,14 +272,40 @@ def train():
                 ep_success.append(current_ep_success)
                 all_episode_rewards.append(current_ep_reward)
 
+                # ==========================================
+                # SwanLab 记录 Episode 指标
+                # ==========================================
+                if SWANLAB_AVAILABLE:
+                    sw.log({
+                        "episode/reward": current_ep_reward,
+                        "episode/length": current_ep_length,
+                        "episode/success": current_ep_success,
+                    }, step=global_step)
+
                 if len(ep_rewards) >= args.log_interval:
                     fps = int(global_step / (time.time() - start_time))
                     success_rate = np.mean(ep_success) * 100
+                    avg_reward = np.mean(ep_rewards)
+                    avg_length = np.mean(ep_lengths)
+
                     print(f"{global_step:>10} | "
-                          f"{np.mean(ep_rewards):>10.2f} | "
-                          f"{np.mean(ep_lengths):>8.0f} | "
+                          f"{avg_reward:>10.2f} | "
+                          f"{avg_length:>8.0f} | "
                           f"{success_rate:>9.1f}% | "
                           f"{fps:>6}")
+
+                    # ==========================================
+                    # SwanLab 记录聚合指标
+                    # ==========================================
+                    if SWANLAB_AVAILABLE:
+                        sw.log({
+                            "train/avg_reward": avg_reward,
+                            "train/avg_length": avg_length,
+                            "train/success_rate": success_rate,
+                            "train/fps": fps,
+                            "train/global_step": global_step,
+                        }, step=global_step)
+
                     ep_rewards.clear()
                     ep_lengths.clear()
                     ep_success.clear()
@@ -280,6 +351,12 @@ def train():
         optimizer.param_groups[1]["lr"] = current_lr
 
         b_inds = np.arange(args.num_steps * num_agents)
+
+        # ---- 记录更新前的损失 ----
+        epoch_losses = []
+        epoch_entropies = []
+        epoch_v_losses = []
+
         for epoch in range(args.n_epochs):
             np.random.shuffle(b_inds)
             for start in range(0, args.num_steps * num_agents, args.batch_size):
@@ -318,6 +395,22 @@ def train():
                 nn.utils.clip_grad_norm_(critic.parameters(), args.max_grad_norm)
                 optimizer.step()
 
+                # 收集损失值
+                epoch_losses.append(loss.item())
+                epoch_entropies.append(entropy.item())
+                epoch_v_losses.append(v_loss.item())
+
+        # ==========================================
+        # SwanLab 记录更新后的损失
+        # ==========================================
+        if SWANLAB_AVAILABLE and epoch_losses:
+            sw.log({
+                "loss/pg_loss": np.mean(epoch_losses),
+                "loss/entropy": np.mean(epoch_entropies),
+                "loss/vf_loss": np.mean(epoch_v_losses),
+                "loss/learning_rate": current_lr,
+            }, step=global_step)
+
         buffer.clear()
 
         # ---- 阶段 C：模型持久化 ----
@@ -327,12 +420,36 @@ def train():
             torch.save(actor.state_dict(), model_path)
             print(f">>> 模型已保存至: {model_path}")
 
+            # ==========================================
+            # SwanLab 记录模型保存
+            # ==========================================
+            if SWANLAB_AVAILABLE:
+                sw.log({
+                    "train/model_saved": 1,
+                    "train/save_step": global_step,
+                }, step=global_step)
+                # 保存模型到 SwanLab（可选）
+                sw.save(model_path)
+
     # ==========================================
-    # 5. 训练结束，绘制曲线
+    # 5. 训练结束
     # ==========================================
     print(f"[{time.strftime('%H:%M:%S')}] 训练结束！共耗时 {(time.time() - start_time) / 3600:.2f} 小时。")
     print(f"总回合数: {len(all_episode_rewards)}")
     print(f"平均奖励: {np.mean(all_episode_rewards):.2f}")
+
+    # ==========================================
+    # SwanLab 记录最终结果
+    # ==========================================
+    if SWANLAB_AVAILABLE:
+        sw.log({
+            "final/total_episodes": len(all_episode_rewards),
+            "final/avg_reward": np.mean(all_episode_rewards) if all_episode_rewards else 0,
+            "final/max_reward": np.max(all_episode_rewards) if all_episode_rewards else 0,
+            "final/min_reward": np.min(all_episode_rewards) if all_episode_rewards else 0,
+        }, step=global_step)
+        sw.finish()
+        print("✅ SwanLab 实验已结束")
 
     # ---- 绘制奖励曲线 ----
     try:
@@ -345,8 +462,8 @@ def train():
 
         window = 50
         if len(all_episode_rewards) >= window:
-            smoothed = np.convolve(all_episode_rewards, np.ones(window)/window, mode='valid')
-            plt.plot(np.arange(window-1, len(all_episode_rewards)), smoothed,
+            smoothed = np.convolve(all_episode_rewards, np.ones(window) / window, mode='valid')
+            plt.plot(np.arange(window - 1, len(all_episode_rewards)), smoothed,
                      color='red', linewidth=2, label=f'MA ({window})')
 
         plt.title('MAPPO Training - Average Reward per Episode', fontsize=14)
@@ -359,9 +476,6 @@ def train():
         plt.savefig("logs/reward_curve.png", dpi=150, bbox_inches='tight')
         print("✅ 奖励曲线已保存到 logs/reward_curve.png")
 
-        # 如果是本地运行，取消注释以下行可弹窗显示
-        # plt.show()
-
     except ImportError:
         print("⚠️ matplotlib 未安装，请运行: pip install matplotlib")
     except Exception as e:
@@ -369,5 +483,6 @@ def train():
 
 
 if __name__ == "__main__":
+    sw.login(api_key="rdGaOSnlBY0KBDnNdkzja")
     torch.set_num_threads(4)
     train()
