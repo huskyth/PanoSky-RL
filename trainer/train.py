@@ -12,7 +12,7 @@ from collections import deque
 import gymnasium as gym
 
 # ==========================================
-# 导入 SwanLab（新增）
+# 导入 SwanLab
 # ==========================================
 try:
     import swanlab as sw
@@ -49,6 +49,9 @@ class PPOArgs:
     log_interval = 50
 
     config_name = 'th_demo.ini'
+
+    # ===== 新增：武器开关（由配置控制） =====
+    is_use_weapon = False  # 默认开启武器，可在配置中覆盖
 
 
 # ==========================================
@@ -132,10 +135,15 @@ def train():
     args = PPOArgs()
 
     # ==========================================
-    # SwanLab 初始化（新增）
+    # SwanLab 初始化
     # ==========================================
     if SWANLAB_AVAILABLE:
-        # 收集实验配置
+        # 从环境变量读取 API Key（推荐）
+        # 如果没有设置，SwanLab 会尝试读取 ~/.swanlab/ 中的配置
+        api_key = os.environ.get("SWANLAB_API_KEY", None)
+        if api_key:
+            sw.login(api_key=api_key)
+
         config = {
             "total_timesteps": args.total_timesteps,
             "num_steps": args.num_steps,
@@ -149,6 +157,7 @@ def train():
             "vf_coef": args.vf_coef,
             "max_grad_norm": args.max_grad_norm,
             "config_name": args.config_name,
+            "is_use_weapon": args.is_use_weapon,
         }
 
         sw.init(
@@ -166,7 +175,7 @@ def train():
     cf = configparser.ConfigParser()
     cf.read(str(config_path), encoding="utf-8")
 
-    # ---- 创建环境 ----
+    # ---- 创建环境（武器开关由 args 控制） ----
     env = MultiUavEnv(
         rank=0,
         mode="train",
@@ -174,7 +183,7 @@ def train():
         episode_limit=500,
         is_debug=False,
         is_share=True,
-        is_use_weapon=False
+        is_use_weapon=args.is_use_weapon  # 由 PPOArgs 控制
     )
 
     # ---- 获取维度 ----
@@ -189,6 +198,7 @@ def train():
     global_state_dim = obs_dim * num_agents
 
     print(f"obs_dim: {obs_dim}, action_dim: {action_dim}, num_agents: {num_agents}")
+    print(f"is_use_weapon: {args.is_use_weapon}")
 
     # ---- 实例化网络 ----
     actor = Actor(obs_dim, action_dim).to(args.device)
@@ -222,11 +232,8 @@ def train():
     print(f"{'Step':>10} | {'Ep Reward':>10} | {'Ep Len':>8} | {'Success Rate':>10} | {'FPS':>6}")
     print("-" * 80)
 
-    # ---- 记录训练开始到 SwanLab ----
     if SWANLAB_AVAILABLE:
-        sw.log({
-            "train/start": 1
-        }, step=0)
+        sw.log({"train/start": 1}, step=0)
 
     while global_step < args.total_timesteps:
         # ---- 阶段 A：收集数据 ----
@@ -273,9 +280,6 @@ def train():
                 ep_success.append(current_ep_success)
                 all_episode_rewards.append(current_ep_reward)
 
-                # ==========================================
-                # SwanLab 记录 Episode 指标
-                # ==========================================
                 if SWANLAB_AVAILABLE:
                     sw.log({
                         "episode/reward": current_ep_reward,
@@ -295,9 +299,6 @@ def train():
                           f"{success_rate:>9.1f}% | "
                           f"{fps:>6}")
 
-                    # ==========================================
-                    # SwanLab 记录聚合指标
-                    # ==========================================
                     if SWANLAB_AVAILABLE:
                         sw.log({
                             "train/avg_reward": avg_reward,
@@ -353,7 +354,6 @@ def train():
 
         b_inds = np.arange(args.num_steps * num_agents)
 
-        # ---- 记录更新前的损失 ----
         epoch_losses = []
         epoch_entropies = []
         epoch_v_losses = []
@@ -396,14 +396,10 @@ def train():
                 nn.utils.clip_grad_norm_(critic.parameters(), args.max_grad_norm)
                 optimizer.step()
 
-                # 收集损失值
                 epoch_losses.append(loss.item())
                 epoch_entropies.append(entropy.item())
                 epoch_v_losses.append(v_loss.item())
 
-        # ==========================================
-        # SwanLab 记录更新后的损失
-        # ==========================================
         if SWANLAB_AVAILABLE and epoch_losses:
             sw.log({
                 "loss/pg_loss": np.mean(epoch_losses),
@@ -421,15 +417,11 @@ def train():
             torch.save(actor.state_dict(), model_path)
             print(f">>> 模型已保存至: {model_path}")
 
-            # ==========================================
-            # SwanLab 记录模型保存
-            # ==========================================
             if SWANLAB_AVAILABLE:
                 sw.log({
                     "train/model_saved": 1,
                     "train/save_step": global_step,
                 }, step=global_step)
-                # 保存模型到 SwanLab（可选）
                 sw.save(model_path)
 
     # ==========================================
@@ -439,9 +431,6 @@ def train():
     print(f"总回合数: {len(all_episode_rewards)}")
     print(f"平均奖励: {np.mean(all_episode_rewards):.2f}")
 
-    # ==========================================
-    # SwanLab 记录最终结果
-    # ==========================================
     if SWANLAB_AVAILABLE:
         sw.log({
             "final/total_episodes": len(all_episode_rewards),
