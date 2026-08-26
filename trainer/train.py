@@ -473,5 +473,6 @@ def train():
 
 
 if __name__ == "__main__":
+    sw.login(api_key="rdGaOSnlBY0KBDnNdkzja")
     torch.set_num_threads(4)
     train()
