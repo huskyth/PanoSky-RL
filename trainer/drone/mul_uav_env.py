@@ -433,7 +433,6 @@ class MultiUavEnv:
                      "reward": self.reward,
                      "c_target_id": id(self.raw_uavs[which_idx]) if which_idx is not None else "None",
                      'r_msg': self.r_msg,
-                     'degree': self.degree,
                      "curriculum_stage": self.curriculum_stage}
         self.episode_data.append(data_save)
 
@@ -630,7 +629,6 @@ class MultiUavEnv:
         current_p = self.raw_uavs
         rewards = [0.0 for _ in range(self.n_total_uavs)]
         self.r_msg = ['' for _ in range(self.n_total_uavs)]
-        self.degree = [None for _ in range(self.n_total_uavs)]
 
         # ===== 1. 全局共享奖励 =====
         r_shared_formation = 0.0
