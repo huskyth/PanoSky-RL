@@ -139,7 +139,6 @@ class MultiUavEnv:
         self.is_debug = is_debug
         self.is_use_weapon = True
         self.is_share = is_share
-        self.right_vector = None
 
         self.n_episode = 0
         self._episode_steps = 0
@@ -196,7 +195,6 @@ class MultiUavEnv:
         self.raw_uavs = []
         self.episode_data = []
         self._episode_steps = 0
-        self.right_vector = [[1, 0, 0] for i in range(self.n_total_uavs)]
         self.reward = None
         self.is_terminal = [False for _ in range(self.n_total_uavs)]
 
@@ -244,7 +242,6 @@ class MultiUavEnv:
         data_save = {"uva_state": [x.to_dict() for x in self.raw_uavs],
                      "uva_actions": [-1 for _ in range(self.n_total_uavs)],
                      "_episode_steps": self._episode_steps, "reward": self.reward,
-                     "right_vec": self.right_vector,
                      "c_target_id": id(self.raw_uavs[which_idx]) if which_idx is not None else "None",
                      "curriculum_stage": self.curriculum_stage}
         self.episode_data.append(data_save)
@@ -398,9 +395,7 @@ class MultiUavEnv:
             new_position[0] = np.clip(new_position[0], self.map.map_min_x, self.map.map_max_x)
             new_position[1] = np.clip(new_position[1], self.map.map_min_y, self.map.map_max_y)
             # 高度边界
-            terrain_height = self.map.search_nh(new_position[0], new_position[1])
-            min_alt = terrain_height + self.coll_safe_dis
-            new_position[2] = np.clip(new_position[2], min_alt, self.max_available_height)
+            new_position[2] = np.clip(new_position[2], 0, self.max_available_height)
 
             # ===== 更新速度向量 =====
             new_velocity = np.array([vx, vy, vz])
@@ -409,12 +404,6 @@ class MultiUavEnv:
             self.raw_uavs[idx].set_position(*new_position.tolist())
             self.raw_uavs[idx].set_velocity(*new_velocity.tolist())
 
-            # ===== 更新 right_vector（用于可视化/调试） =====
-            if abs(vx) > 1e-6 or abs(vy) > 1e-6:
-                forward = np.array([vx, vy, 0])
-                forward = forward / (np.linalg.norm(forward) + 1e-8)
-                right = np.array([-forward[1], forward[0], 0])
-                self.right_vector[idx] = right.tolist()
 
         self._episode_steps += 1
 
@@ -440,7 +429,6 @@ class MultiUavEnv:
         which_idx = self._get_game_target_idx()
         data_save = {"uva_state": [x.to_dict() for x in self.raw_uavs],
                      "uva_actions": action,
-                     "right_vec": self.right_vector,
                      "_episode_steps": self._episode_steps,
                      "reward": self.reward,
                      "c_target_id": id(self.raw_uavs[which_idx]) if which_idx is not None else "None",
