@@ -74,5 +74,5 @@ class Game:
         return GameManager.get_bullets()
 
     @staticmethod
-    def get_gun_direction():
-        return GameManager.track_rader.get_gun_direction()
+    def get_aim_point():
+        return GameManager.track_rader.get_aim_point()

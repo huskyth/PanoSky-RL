@@ -35,22 +35,21 @@ class TrackRader(Rader):
         self.last_target_position = None
         self.tuning_start_position = None  # 调弦开始时炮口位置
 
-    def get_gun_direction(self):
+    def get_aim_point(self):
         """
         获取当前炮口指向方向（单位向量）
         :return: np.ndarray，形状 (3,)，表示炮口指向的方向向量
         """
         # 计算从武器基座到炮口指向位置的向量
-        direction = np.array(self.top_project_position) - np.array(self.position)
-        norm = np.linalg.norm(direction)
-
-        # 如果向量长度接近零（理论上不会发生，但防止除零）
-        if norm < 1e-10:
-            # 默认指向 X 轴正方向
-            return np.array([1.0, 0.0, 0.0])
-
-        # 归一化返回
-        return direction / norm
+        """
+        返回当前炮口指向的目标点（绝对坐标）
+        用于可视化中的红色瞄准线终点
+        """
+        if hasattr(self, 'top_project_position'):
+            return self.top_project_position
+        else:
+            # 如果没有瞄准点，返回武器位置前方 1 米作为默认
+            return [self.position[0] + 1, self.position[1], self.position[2]]
     def _cal_time(self, theta):
         """
         计算调弦所需时间
@@ -66,7 +65,7 @@ class TrackRader(Rader):
     def calculate_adjust_data(self, dynamic_target_position=None):
         """
         计算调弦数据——每次调用时使用目标的最新位置
-        :param dynamic_target_position: 目标当前位置（如果为None则使用current_target.position）
+        同时每步更新 top_project_position 用于可视化记录
         """
         if self.current_target is None and dynamic_target_position is None:
             logger.warning("调弦计算时，目标不存在")
@@ -82,11 +81,11 @@ class TrackRader(Rader):
         uav_projection_point = [target_pos[0], target_pos[1], self.position[2]]
         uav_weapon_vector = subtraction_of_2_vector(uav_projection_point, self.position)
 
-        # 3. 当前炮口指向方向
+        # 3. 当前炮口指向方向（使用 top_project_position）
         current_direction = subtraction_of_2_vector(self.top_project_position, self.position)
         current_direction_norm = np.linalg.norm(current_direction)
         if current_direction_norm < 1e-8:
-            current_direction = np.array([1.0, 0.0, 0.0])  # 默认指向X轴
+            current_direction = np.array([1.0, 0.0, 0.0])
         else:
             current_direction = current_direction / current_direction_norm
 
@@ -116,14 +115,42 @@ class TrackRader(Rader):
         self.end_position = add_of_2_vector(self.position, target_direction.tolist())
         self.end_theta = end_theta
 
-        # 10. 更新调弦计时器（如果当前调弦时间比新计算的时间短，则延长）
-        #    这是关键——当目标移动时，调弦时间会动态延长！
+        # 10. 更新调弦计时器
         if adjust_time > self.need_adjust_board_time:
             self.need_adjust_board_time = adjust_time
 
-        # 记录目标位置，用于判断目标是否在移动
-        self.last_target_position = target_pos
+        # ===== 新增：每步更新 top_project_position（用于可视化记录） =====
+        # 计算当前帧炮口应该指向的位置（插值）
+        if self.need_adjust_board_time > 0:
+            # 计算插值进度（从当前方向到目标方向的插值）
+            # 使用角度插值，而不是简单线性插值
+            progress = 1.0 - self.need_adjust_board_time / adjust_time
+            progress = max(0.0, min(1.0, progress))
 
+            # 从当前方向插值到目标方向
+            current_dir = current_direction.tolist()
+            target_dir = target_direction.tolist()
+
+            # 使用球面线性插值（Slerp）或简单线性插值
+            interpolated_dir = [
+                current_dir[0] + (target_dir[0] - current_dir[0]) * progress,
+                current_dir[1] + (target_dir[1] - current_dir[1]) * progress,
+                current_dir[2] + (target_dir[2] - current_dir[2]) * progress
+            ]
+            # 归一化
+            norm = np.linalg.norm(interpolated_dir)
+            if norm > 0:
+                interpolated_dir = [interpolated_dir[0] / norm, interpolated_dir[1] / norm, interpolated_dir[2] / norm]
+
+            # 更新 top_project_position 为插值方向上的点（距离武器 1 米）
+            self.top_project_position = add_of_2_vector(self.position, interpolated_dir)
+        else:
+            # 如果调弦时间为 0，直接指向目标方向
+            self.top_project_position = self.end_position
+
+        # 记录目标位置
+        self.last_target_position = target_pos
+        print(f"当前 、{self.top_project_position}")
         logger.info(f"调弦计算：水平角={will_rotate_angle:.2f}°, 时间={horizontal_time:.2f}s, "
                     f"俯仰角={end_theta:.2f}°, 总调弦时间={adjust_time:.2f}s")
 
