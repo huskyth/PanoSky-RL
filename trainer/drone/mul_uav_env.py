@@ -138,7 +138,7 @@ class MultiUavEnv:
         self.rank = rank
         self.mode = mode
         self.is_debug = is_debug
-        self.is_use_weapon = is_use_weapon  # 由参数控制，默认为 True
+        self.is_use_weapon = is_use_weapon
         self.is_share = is_share
 
         self.n_episode = 0
@@ -203,7 +203,6 @@ class MultiUavEnv:
         self.reward = None
         self.is_terminal = [False for _ in range(self.n_total_uavs)]
 
-        # 课程学习
         if self.mode == "train":
             self.current_stage_episodes += 1
             if self.current_stage_episodes >= 20:
@@ -238,7 +237,6 @@ class MultiUavEnv:
             temp_uav = TrainUAV(uav_x, uav_y, uav_z, *init_vel, AttackState.SAFE, UAVState.ALIVE)
             self.raw_uavs.append(temp_uav)
 
-        # 记录初始位置（用于位移计算）
         self.prev_positions = [uav.position.copy() for uav in self.raw_uavs]
 
         if self.is_use_weapon:
@@ -254,12 +252,10 @@ class MultiUavEnv:
                      "curriculum_stage": self.curriculum_stage}
         self.episode_data.append(data_save)
 
-        # 创建新的数据文件（包含开始时间）
         from datetime import datetime
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.episode_data_file = f"./visualization_data/episode_{timestamp}_{self.n_episode}.json"
 
-        # 确保目录存在
         Path("./visualization_data").mkdir(exist_ok=True)
         return self.get_state_of_all_uav()
 
@@ -291,27 +287,27 @@ class MultiUavEnv:
         return [self.get_observation_of_a_uav(i) for i in range(self.n_total_uavs)]
 
     # ============================================================
-    # get_observation_of_a_uav（28维标准观测，适配武器开关）
+    # get_observation_of_a_uav（28维标准观测，三维位置/速度）
     # ============================================================
     def get_observation_of_a_uav(self, uav_id):
         uav = self.raw_uavs[uav_id]
-        # 水平位置：取 x 和 y（y是水平方向）
-        pos = np.array([uav.position[0], uav.position[1]])
-        vel = np.array([uav.velocity[0], uav.velocity[1]])
+        # 三维位置：x, y, z
+        pos = np.array(uav.position)  # [x, y, z]
+        vel = np.array(uav.velocity)  # [vx, vy, vz]
 
         speed = np.linalg.norm(vel)
         if speed > 0:
             vel_norm = vel / speed
         else:
-            vel_norm = np.array([0.0, 0.0])
+            vel_norm = np.array([0.0, 0.0, 0.0])
 
-        weapon_pos = np.array([self.weapon[0], self.weapon[1]])
+        # 武器三维位置
+        weapon_pos = np.array(self.weapon)  # [x, y, z]
         rel_weapon = weapon_pos - pos
         dist_to_weapon = np.linalg.norm(rel_weapon)
 
         # ===== 根据是否使用武器决定观测内容 =====
         if self.is_use_weapon:
-            # ---- 使用武器模式：完整观测 ----
             try:
                 raw_state = EnvironmentInterface.get_weapon_state()
                 state_map = {0: 0, 1: 1, 2: 2, 3: 3}
@@ -322,57 +318,52 @@ class MultiUavEnv:
             target_idx = self._get_game_target_idx()
             is_targeted = 1.0 if target_idx == uav_id else 0.0
 
-            # 炮口朝向（从接口获取或使用默认）
+            # 炮口朝向（取水平方向的前两个分量）
             try:
-                weapon_forward = np.array(EnvironmentInterface.get_gun_direction()[:2])
+                gun_dir = np.array(EnvironmentInterface.get_gun_direction())
+                weapon_forward = gun_dir[:2]  # 水平方向
             except:
                 weapon_forward = np.array([1.0, 0.0])
-
-            if dist_to_weapon > 0:
-                to_weapon = rel_weapon / dist_to_weapon
-                angle_cos = np.dot(weapon_forward, to_weapon)
-            else:
-                angle_cos = 0.0
         else:
-            # ---- 不使用武器模式：所有武器相关字段填 0 ----
             weapon_state = 0
             is_targeted = 0.0
             weapon_forward = np.array([1.0, 0.0])
+
+        # 炮口夹角（基于水平方向）
+        if dist_to_weapon > 0:
+            to_weapon = rel_weapon / dist_to_weapon
+            angle_cos = np.dot(weapon_forward, to_weapon[:2])
+        else:
             angle_cos = 0.0
 
-        # 队友位置（两种模式共用）
-        mate_pos = np.array([0.0, 0.0])
+        # 队友三维相对位置
+        mate_pos = np.array([0.0, 0.0, 0.0])
         for i in range(self.n_total_uavs):
             if i != uav_id and self.raw_uavs[i].status == UAVState.ALIVE:
-                mate_pos = np.array([
-                    self.raw_uavs[i].position[0] - uav.position[0],
-                    self.raw_uavs[i].position[1] - uav.position[1]
-                ])
+                mate_pos = np.array(self.raw_uavs[i].position) - pos
                 break
 
-        # 子弹信息（仅使用武器模式才有）
-        bullet_rel = np.array([0.0, 0.0])
+        # 子弹信息（三维）
+        bullet_rel = np.array([0.0, 0.0, 0.0])
         bullet_dist = 0.0
         bullet_timer = 0.0
-        # 如果有子弹接口可以获取真实数据，但此处保持占位
 
-        height_ratio = (uav.position[2] - self.min_available_height) / (
-                self.max_available_height - self.min_available_height)
-
+        # 构建观测向量（总维度 28）
         obs = []
-        obs.extend(pos / self.map.map_max_x)
-        obs.extend(vel_norm)
-        obs.extend(mate_pos / self.map.map_max_x)
-        obs.append(dist_to_weapon / 3000.0)
-        obs.extend(weapon_forward)
-        obs.append(angle_cos)
-        obs.extend(bullet_rel / self.map.map_max_x)
-        obs.append(bullet_dist / 500.0)
-        obs.append(bullet_timer / 3.0)
-        obs.append(is_targeted)
-        obs.append(weapon_state / 3.0)
-        obs.append(height_ratio)
-        obs.extend([0.0] * 11)
+        obs.extend(pos / self.map.map_max_x)          # 3
+        obs.extend(vel_norm)                          # 3
+        obs.extend(mate_pos / self.map.map_max_x)     # 3
+        obs.extend(rel_weapon / self.map.map_max_x)   # 3
+        obs.append(dist_to_weapon / 3000.0)           # 1
+        obs.extend(weapon_forward)                    # 2
+        obs.append(angle_cos)                         # 1
+        obs.extend(bullet_rel / self.map.map_max_x)   # 3
+        obs.append(bullet_dist / 500.0)               # 1
+        obs.append(bullet_timer / 3.0)                # 1
+        obs.append(is_targeted)                       # 1
+        obs.append(weapon_state / 3.0)                # 1
+        # 填充到 28 维（当前已用 23 维，再补 5 个零）
+        obs.extend([0.0] * 5)
 
         return np.array(obs, dtype=np.float32)
 
@@ -388,7 +379,7 @@ class MultiUavEnv:
         return None
 
     # ============================================================
-    # step 物理执行（适配武器开关）
+    # step 物理执行
     # ============================================================
     def step(self, action):
         actions = action
@@ -418,7 +409,6 @@ class MultiUavEnv:
 
         self._episode_steps += 1
 
-        # ---- 武器接口调用（仅使用武器模式） ----
         if self.is_use_weapon:
             position = [self.raw_uavs[u].position for u in range(self.n_total_uavs)]
             velocity = [self.raw_uavs[u].velocity for u in range(self.n_total_uavs)]
@@ -427,7 +417,6 @@ class MultiUavEnv:
                 if game_uav_list[u] is None:
                     self.raw_uavs[u].status = UAVState.DESTROYED
 
-        # ---- 奖励计算 ----
         self.set_reward(last_state, actions, last_target, lat_stat)
 
         ret_reward = self.reward
@@ -453,7 +442,6 @@ class MultiUavEnv:
         if not self.is_debug:
             return
 
-        # ---- 缩放参数 ----
         SCALE_FACTOR = 20.0
         REFERENCE_POINT = self.target
 
@@ -464,7 +452,6 @@ class MultiUavEnv:
                 (pos[1] - REFERENCE_POINT[1]) / SCALE_FACTOR
             ]
 
-        # ---- 计算位移 ----
         step_distances = []
         if self.prev_positions is not None:
             for i, uav in enumerate(self.raw_uavs):
@@ -481,7 +468,6 @@ class MultiUavEnv:
             dist_str = ", ".join([f"UAV{i}={step_distances[i]:.2f}m" for i in range(len(step_distances))])
             logger.info(f"Step {self._episode_steps} 位移: {dist_str}")
 
-        # ---- 获取武器状态（仅使用武器模式） ----
         weapon_state = 0
         tuning_time = 0.0
         aim_point = None
@@ -504,7 +490,6 @@ class MultiUavEnv:
                 to_target = np.array([50, 0, 0])
             aim_point = (np.array(self.weapon) + to_target).tolist()
 
-        # ---- 构造无人机数据 ----
         uavs_data = []
         for i, uav in enumerate(self.raw_uavs):
             vel = uav.velocity
@@ -530,7 +515,6 @@ class MultiUavEnv:
                 "is_targeted": (self._get_game_target_idx() == i) if self.is_use_weapon else False,
             })
 
-        # ---- 构造武器数据 ----
         raw_weapon = [float(self.weapon[0]), float(self.weapon[1]), float(self.weapon[2])]
         scaled_weapon = scale_pos(raw_weapon)
 
@@ -553,7 +537,6 @@ class MultiUavEnv:
             "ammo": 1000
         }
 
-        # ---- 构造目标数据 ----
         raw_target = [float(self.target[0]), float(self.target[1]), float(self.target[2])]
         scaled_target = scale_pos(raw_target)
 
@@ -566,7 +549,6 @@ class MultiUavEnv:
             "threatRange": 50
         }
 
-        # ---- 获取子弹数据 ----
         bullets_data = []
         if self.is_use_weapon:
             try:
@@ -589,7 +571,6 @@ class MultiUavEnv:
             except Exception as e:
                 logger.debug(f"子弹数据采集失败: {e}")
 
-        # ---- 完整记录 ----
         step_record = {
             "step": self._episode_steps,
             "reward": self.reward if isinstance(self.reward, list) else [float(self.reward)],
@@ -601,7 +582,6 @@ class MultiUavEnv:
             "action": action
         }
 
-        # ---- 写入缓冲区 ----
         if not hasattr(self, '_step_buffer'):
             self._step_buffer = []
 
@@ -642,15 +622,13 @@ class MultiUavEnv:
         self._step_buffer = []
 
     # ============================================================
-    # set_reward（适配武器开关，无武器时无协作奖励）
+    # set_reward
     # ============================================================
     def set_reward(self, last_p, action, last_target, lat_stat):
         current_p = self.raw_uavs
         rewards = [0.0 for _ in range(self.n_total_uavs)]
         self.r_msg = ['' for _ in range(self.n_total_uavs)]
 
-        # ===== 1. 全局共享奖励 =====
-        # 【关键修改】只有使用武器时，才计算协作奖励
         r_shared_formation = 0.0
         if self.is_use_weapon and self.n_total_uavs >= 2:
             alive_positions = []
@@ -677,7 +655,6 @@ class MultiUavEnv:
                     self.dump("任务完成！")
                     break
 
-        # ===== 2. 个体分离奖励 =====
         for idx in range(self.n_total_uavs):
             uav = current_p[idx]
             if uav.status != UAVState.ALIVE:
@@ -688,18 +665,14 @@ class MultiUavEnv:
 
             r_step = -0.01
 
-            # ===== 根据是否使用武器决定奖励逻辑 =====
             if self.is_use_weapon:
-                # ---- 使用武器模式：完整奖励 ----
                 target_idx = self._get_game_target_idx()
                 is_targeted = (target_idx == idx)
                 dist_to_weapon = compute_distance(self.weapon, uav.position)
             else:
-                # ---- 不使用武器模式：无武器相关奖励 ----
                 target_idx = None
                 is_targeted = False
                 dist_to_weapon = compute_distance(self.weapon, uav.position)
-                # 不使用武器时，只给靠近目标的导航奖励
                 last_dist = compute_distance(self.weapon, last_p[idx].position) if last_p else dist_to_weapon
                 r_bait = 0.02 * (last_dist - dist_to_weapon) / self.uav_velocity_value
                 r_bait = np.clip(r_bait, -0.05, 0.05)
@@ -710,10 +683,8 @@ class MultiUavEnv:
                 self.r_msg[idx] += f'导航(dist={dist_to_weapon:.0f}), reward={rewards[idx]:.2f}'
                 continue
 
-            # ---- 以下是使用武器模式的完整奖励逻辑 ----
             r_bait = 0.0
             if is_targeted:
-                # 诱饵：安全边界奖励
                 if 1600 < dist_to_weapon < 1900:
                     r_bait = 0.02
                 else:
@@ -751,7 +722,6 @@ class MultiUavEnv:
 
         self.reward = rewards
 
-        # ===== 终局判定 =====
         if r_task_success > 0:
             self.append_data(action)
             msg = "任务完成！"
@@ -798,7 +768,7 @@ class MultiUavEnv:
         if self.is_use_weapon:
             return 28
         else:
-            return 3 + 3 + 3 + 3 + 3
+            return 28
 
     def close(self):
         pass
