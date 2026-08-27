@@ -140,6 +140,7 @@ class Bullet(AbstractEntry):
     def _calculate_all_time_of_fly(self):
         if self.target is None:
             return float('inf')
+        self.position = self.position.tolist() if isinstance(self.position, np.ndarray) else self.position
         distance = distance_of_2_point(self.target.position, self.position)
         return distance / self.velocity
 
@@ -206,7 +207,7 @@ class Bullet(AbstractEntry):
             if hit_any:
                 # 重置所有未被摧毁的无人机的攻击状态
                 for uav in uav_list:
-                    if uav is not None and uav.attacked_state != AttackState.DESTROYED:
+                    if uav is not None and uav.get_attacked_state() != AttackState.DESTROYED:
                         uav.set_attacked_state(AttackState.SAFE)
                 return Weapon.BulletState.KILLED_NO_USE
             else:
