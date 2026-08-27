@@ -158,8 +158,8 @@ class TrackRader(Rader):
 
         self.last_target_position = target_pos
 
-        logger.info(f"调弦计算：角度={will_rotate_angle:.2f}°, 时间={adjust_time:.2f}s, "
-                    f"剩余={self.need_adjust_board_time:.2f}s, 进度={progress:.2f}, is_tuning={self.is_tuning}")
+        # logger.info(f"调弦计算：角度={will_rotate_angle:.2f}°, 时间={adjust_time:.2f}s, "
+        #             f"剩余={self.need_adjust_board_time:.2f}s, 进度={progress:.2f}, is_tuning={self.is_tuning}")
 
     def adjust_board(self, fun):
         """
