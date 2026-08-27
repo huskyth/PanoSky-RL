@@ -23,7 +23,7 @@ except ImportError:
     print("⚠️ SwanLab 未安装，请运行: pip install swanlab")
 
 # 导入你自己的环境
-from drone.mul_uav_env import MultiUavEnv
+from trainer.drone.mul_uav_env import MultiUavEnv
 
 
 # ==========================================
