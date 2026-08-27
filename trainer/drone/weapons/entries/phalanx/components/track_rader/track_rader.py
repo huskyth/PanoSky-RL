@@ -55,11 +55,11 @@ class TrackRader(Rader):
         return min(t2, t1)
 
     def _compute_target_direction(self, target_pos):
-        """计算从武器指向目标的方向向量（单位向量）"""
+        """计算从武器指向目标的三维方向向量（单位向量）"""
         if target_pos is None:
             return np.array([1.0, 0.0, 0.0])
-        uav_projection_point = [target_pos[0], target_pos[1], self.position[2]]
-        uav_weapon_vector = subtraction_of_2_vector(uav_projection_point, self.position)
+        # 直接使用目标的三维位置
+        uav_weapon_vector = subtraction_of_2_vector(target_pos, self.position)
         norm = np.linalg.norm(uav_weapon_vector)
         if norm < 1e-10:
             return np.array([1.0, 0.0, 0.0])
