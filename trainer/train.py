@@ -263,13 +263,13 @@ def train():
             current_ep_reward += np.mean(rewards_list)
             current_ep_length += 1
 
-            if any(term_list):
+            if all(term_list):
                 if max(rewards_list) > 50:
                     current_ep_success = 1
                 else:
                     current_ep_success = 0
 
-            if any(term_list):
+            if all(term_list):
                 ep_rewards.append(current_ep_reward)
                 ep_lengths.append(current_ep_length)
                 ep_success.append(current_ep_success)

@@ -291,6 +291,11 @@ class MultiUavEnv:
     # ============================================================
     def get_observation_of_a_uav(self, uav_id):
         uav = self.raw_uavs[uav_id]
+
+        # ===== 新增：如果无人机已死亡，直接返回零向量 =====
+        if uav.status != UAVState.ALIVE:
+            return np.zeros(28, dtype=np.float32)
+
         # 三维位置：x, y, z
         pos = np.array(uav.position)  # [x, y, z]
         vel = np.array(uav.velocity)  # [vx, vy, vz]
@@ -350,18 +355,18 @@ class MultiUavEnv:
 
         # 构建观测向量（总维度 28）
         obs = []
-        obs.extend(pos / self.map.map_max_x)          # 3
-        obs.extend(vel_norm)                          # 3
-        obs.extend(mate_pos / self.map.map_max_x)     # 3
-        obs.extend(rel_weapon / self.map.map_max_x)   # 3
-        obs.append(dist_to_weapon / 3000.0)           # 1
-        obs.extend(weapon_forward)                    # 2
-        obs.append(angle_cos)                         # 1
-        obs.extend(bullet_rel / self.map.map_max_x)   # 3
-        obs.append(bullet_dist / 500.0)               # 1
-        obs.append(bullet_timer / 3.0)                # 1
-        obs.append(is_targeted)                       # 1
-        obs.append(weapon_state / 3.0)                # 1
+        obs.extend(pos / self.map.map_max_x)  # 3
+        obs.extend(vel_norm)  # 3
+        obs.extend(mate_pos / self.map.map_max_x)  # 3
+        obs.extend(rel_weapon / self.map.map_max_x)  # 3
+        obs.append(dist_to_weapon / 3000.0)  # 1
+        obs.extend(weapon_forward)  # 2
+        obs.append(angle_cos)  # 1
+        obs.extend(bullet_rel / self.map.map_max_x)  # 3
+        obs.append(bullet_dist / 500.0)  # 1
+        obs.append(bullet_timer / 3.0)  # 1
+        obs.append(is_targeted)  # 1
+        obs.append(weapon_state / 3.0)  # 1
         # 填充到 28 维（当前已用 23 维，再补 5 个零）
         obs.extend([0.0] * 5)
 
