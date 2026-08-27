@@ -45,7 +45,7 @@ class PPOArgs:
     vf_coef = 0.5
     max_grad_norm = 0.5
 
-    save_interval = 500
+    save_interval = 5
     log_interval = 50
 
     config_name = 'th_demo.ini'
