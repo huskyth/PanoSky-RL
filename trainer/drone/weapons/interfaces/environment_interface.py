@@ -39,3 +39,8 @@ class EnvironmentInterface:
     @staticmethod
     def get_bullets():
         return Game.get_bullets()
+
+
+    @staticmethod
+    def get_gun_direction():
+        return Game.get_gun_direction()

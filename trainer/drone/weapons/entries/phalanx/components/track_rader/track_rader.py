@@ -35,6 +35,22 @@ class TrackRader(Rader):
         self.last_target_position = None
         self.tuning_start_position = None  # 调弦开始时炮口位置
 
+    def get_gun_direction(self):
+        """
+        获取当前炮口指向方向（单位向量）
+        :return: np.ndarray，形状 (3,)，表示炮口指向的方向向量
+        """
+        # 计算从武器基座到炮口指向位置的向量
+        direction = np.array(self.top_project_position) - np.array(self.position)
+        norm = np.linalg.norm(direction)
+
+        # 如果向量长度接近零（理论上不会发生，但防止除零）
+        if norm < 1e-10:
+            # 默认指向 X 轴正方向
+            return np.array([1.0, 0.0, 0.0])
+
+        # 归一化返回
+        return direction / norm
     def _cal_time(self, theta):
         """
         计算调弦所需时间

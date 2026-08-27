@@ -51,7 +51,7 @@ class PPOArgs:
     config_name = 'th_demo.ini'
 
     # ===== 武器开关 =====
-    is_use_weapon = False  # 默认开启武器
+    is_use_weapon = True  # 默认开启武器
 
 
 # ==========================================
