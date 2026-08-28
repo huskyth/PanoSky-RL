@@ -648,7 +648,7 @@ class MultiUavEnv:
                     break
 
         # ===== 2. 获取当前武器状态 =====
-        weapon_state = self._get_weapon_state()  # 0=NORMAL,1=TUNING,2=CAPTURE,3=FIRE
+        weapon_state = EnvironmentInterface.get_weapon_state()  # 0=NORMAL,1=TUNING,2=CAPTURE,3=FIRE
 
         # ===== 3. 个体奖励 =====
         for idx in range(self.n_total_uavs):
