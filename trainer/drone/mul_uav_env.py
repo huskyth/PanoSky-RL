@@ -634,113 +634,93 @@ class MultiUavEnv:
         rewards = [0.0 for _ in range(self.n_total_uavs)]
         self.r_msg = ['' for _ in range(self.n_total_uavs)]
 
-        r_shared_formation = 0.0
-        if self.is_use_weapon and self.n_total_uavs >= 2:
-            alive_positions = []
-            for idx in range(self.n_total_uavs):
-                if current_p[idx].status == UAVState.ALIVE:
-                    alive_positions.append(np.array(current_p[idx].position[:2]))
-            if len(alive_positions) >= 2:
-                w_pos = np.array(self.weapon[:2])
-                v0 = (alive_positions[0] - w_pos) / (np.linalg.norm(alive_positions[0] - w_pos) + 1e-8)
-                v1 = (alive_positions[1] - w_pos) / (np.linalg.norm(alive_positions[1] - w_pos) + 1e-8)
-                cos_angle = np.dot(v0, v1)
-                r_shared_formation = 0.02 * (1 - cos_angle) / 2
-
-        r_curriculum_bonus = self.curriculum_stage_rewards[self.curriculum_stage]
-
+        # ===== 1. 终端奖励（任务成功） =====
         r_task_success = 0.0
         for idx in range(self.n_total_uavs):
-            if current_p[idx].status == UAVState.ALIVE:
-                dist_to_target = compute_distance(current_p[idx].position, self.target)
+            uav = current_p[idx]
+            if uav.status == UAVState.ALIVE:
+                dist_to_target = compute_distance(uav.position, self.target)
                 if dist_to_target <= self.task_success_radius:
-                    r_task_success = 100.0 + r_curriculum_bonus
+                    r_task_success = 100.0
                     self.is_terminal = [True for _ in range(self.n_total_uavs)]
                     self.current_stage_success_count += 1
                     self.dump("任务完成！")
                     break
 
+        # ===== 2. 获取当前武器状态 =====
+        weapon_state = self._get_weapon_state()  # 0=NORMAL,1=TUNING,2=CAPTURE,3=FIRE
+
+        # ===== 3. 个体奖励 =====
         for idx in range(self.n_total_uavs):
             uav = current_p[idx]
             if uav.status != UAVState.ALIVE:
                 rewards[idx] = -10.0
                 self.is_terminal[idx] = True
-                self.r_msg[idx] = f'{idx}被摧毁/撞毁，'
+                self.r_msg[idx] = f'{idx}阵亡，'
                 continue
 
             r_step = -0.01
 
-            if self.is_use_weapon:
-                target_idx = self._get_game_target_idx()
-                is_targeted = (target_idx == idx)
-                dist_to_weapon = compute_distance(self.weapon, uav.position)
-            else:
-                target_idx = None
-                is_targeted = False
-                dist_to_weapon = compute_distance(self.weapon, uav.position)
-                last_dist = compute_distance(self.weapon, last_p[idx].position) if last_p else dist_to_weapon
-                r_bait = 0.02 * (last_dist - dist_to_weapon) / self.uav_velocity_value
-                r_bait = np.clip(r_bait, -0.05, 0.05)
+            target_idx = self._get_game_target_idx()
+            is_targeted = (target_idx == idx)
+            dist_to_weapon = compute_distance(self.weapon, uav.position)
 
-                r_suicide = 0.0
-                rewards[idx] = r_step + r_bait + r_shared_formation + r_task_success
-                rewards[idx] = np.clip(rewards[idx], -2.0, 2.0)
-                self.r_msg[idx] += f'导航(dist={dist_to_weapon:.0f}), reward={rewards[idx]:.2f}'
-                continue
+            # ---- 计算横向位移（相对于武器方向） ----
+            lateral_displacement = 0.0
+            if last_p and idx < len(last_p):
+                prev_pos = np.array(last_p[idx].position[:2])
+                curr_pos = np.array(uav.position[:2])
+                to_weapon = np.array(self.weapon[:2]) - curr_pos
+                if np.linalg.norm(to_weapon) > 0:
+                    to_weapon = to_weapon / np.linalg.norm(to_weapon)
+                    # 计算垂直方向上的位移
+                    displacement_vec = curr_pos - prev_pos
+                    lateral_displacement = np.linalg.norm(
+                        displacement_vec - np.dot(displacement_vec, to_weapon) * to_weapon)
 
-            r_bait = 0.0
-            if is_targeted:
-                if 1600 < dist_to_weapon < 1900:
-                    r_bait = 0.02
+            # ---- 闪避奖励（核心！） ----
+            r_dodge = 0.0
+            if weapon_state == 3:  # FIRE 状态
+                if lateral_displacement > 10.0:  # 横向位移 > 10m（假设爆炸半径 10m）
+                    r_dodge = 1.0  # 成功闪避！
+                    self.r_msg[idx] += '闪避+1.0, '
                 else:
-                    r_bait = -0.02 * (abs(dist_to_weapon - 1750) / 200)
+                    r_dodge = -0.2  # 没躲开，被击中
+                    self.r_msg[idx] += '未闪避-0.2, '
 
-                vel = np.array(uav.velocity[:2])
-                if np.linalg.norm(vel) > 0:
-                    to_weapon = (np.array(self.weapon[:2]) - np.array(uav.position[:2]))
-                    to_weapon_norm = np.linalg.norm(to_weapon)
-                    if to_weapon_norm > 0:
-                        to_weapon = to_weapon / to_weapon_norm
-                        lateral_speed = np.linalg.norm(vel - np.dot(vel, to_weapon) * to_weapon)
-                        if lateral_speed < 0.2 * self.uav_velocity_value:
-                            r_bait -= 0.02
+            # ---- 诱饵/刺客任务奖励 ----
+            r_role = 0.0
+            if is_targeted:
+                # 被锁定时，保持在 1500m 附近
+                if 1400 < dist_to_weapon < 1600:
+                    r_role = 0.02
+                else:
+                    r_role = -0.01 * (abs(dist_to_weapon - 1500) / 100)
                 self.r_msg[idx] += f'诱饵(dist={dist_to_weapon:.0f}), '
             else:
-                last_dist = compute_distance(self.weapon, last_p[idx].position) if last_p else dist_to_weapon
-                r_bait = 0.02 * (last_dist - dist_to_weapon) / self.uav_velocity_value
-                r_bait = np.clip(r_bait, -0.05, 0.05)
-
-                if target_idx is not None and target_idx != idx and dist_to_weapon > 1800:
-                    r_bait -= 0.1
-                    self.r_msg[idx] += '摸鱼惩罚, '
+                # 没被锁定，靠近目标
+                if dist_to_weapon > 1200:
+                    r_role = 0.02 * (2000 - dist_to_weapon) / 800
                 self.r_msg[idx] += f'刺客(dist={dist_to_weapon:.0f}), '
 
-            r_suicide = 0.0
-            if dist_to_weapon < 1500:
-                r_suicide = -0.5
-                self.r_msg[idx] += '自杀警告, '
-
-            rewards[idx] = r_step + r_bait + r_suicide
-            rewards[idx] += r_shared_formation + r_task_success
+            # ---- 汇总 ----
+            rewards[idx] = r_step + r_dodge + r_role + r_task_success
             rewards[idx] = np.clip(rewards[idx], -2.0, 2.0)
-            self.r_msg[idx] += f'reward={rewards[idx]:.2f}'
 
         self.reward = rewards
 
+        # ===== 4. 终局判定 =====
         if r_task_success > 0:
             self.append_data(action)
-            msg = "任务完成！"
-            self.dump(msg)
-            green_str = _green_log_str(msg)
-            logger.info(f"PID-{os.getpid()}, mode-{self.mode}, episode-{self.n_episode} {green_str}")
+            self.dump("任务完成！")
+            logger.info(f"PID-{os.getpid()}, mode-{self.mode}, episode-{self.n_episode} 任务完成！")
             self.n_episode += 1
             return
 
         if all(self.is_terminal):
             self.append_data(action)
-            msg = "都被击毁！"
-            self.dump(msg)
-            logger.info(f"PID-{os.getpid()}, mode-{self.mode}, episode-{self.n_episode} {msg}")
+            self.dump("都被击毁！")
+            logger.info(f"PID-{os.getpid()}, mode-{self.mode}, episode-{self.n_episode} 都被击毁！")
             self.n_episode += 1
             return
 
@@ -749,9 +729,9 @@ class MultiUavEnv:
                 self.r_msg[i] += '步子到了。'
             self.n_episode += 1
             self.is_terminal = [True for _ in range(self.n_total_uavs)]
-            logger.info(f"PID-{os.getpid()}, mode-{self.mode}, episode-{self.n_episode} [terminated]：超出最大限制")
+            logger.info(f"PID-{os.getpid()}, mode-{self.mode}, episode-{self.n_episode} 超出步数限制")
             self.append_data(action)
-            self.dump("超出最大限制")
+            self.dump("超出步数限制")
             return
 
         self.append_data(action)
