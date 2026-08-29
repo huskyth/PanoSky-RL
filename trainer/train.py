@@ -539,6 +539,7 @@ def train(resume=False):
 
 if __name__ == "__main__":
     # 支持命令行参数：python train.py --resume
+    sw.login(api_key="rdGaOSnlBY0KBDnNdkzja")
     import sys
     resume = '--resume' in sys.argv
     train(resume=True)
