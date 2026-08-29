@@ -219,7 +219,7 @@ def main():
     tester = EscapeAfterFireTester(
         speed=1000050.0,       # 切向速度 (m/s)
         radius=1500.0,     # 圆周半径 (m)
-        step_limit=300,
+        step_limit=400,
         wait_steps=50,     # 最多等待50步（5秒）开火
         start_dist=1450    # 初始距离
     )

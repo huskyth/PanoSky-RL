@@ -660,7 +660,7 @@ class MultiUavEnv:
                 r_dodge = -0.5 + (lateral_displacement / 200.0) * 2
                 r_dodge = np.clip(r_dodge, -0.2, 1.5)
                 self.r_msg[idx] += f'闪避({lateral_displacement:.1f}m)+{r_dodge:.2f}, '
-                sw.log({"r_ShanBi": r_dodge})
+                # sw.log({"r_ShanBi": r_dodge})
 
             else:
 
