@@ -149,7 +149,7 @@ class Bullet(AbstractEntry):
         return distance / self.velocity
 
     # ============================================================
-    # 核心改动：step_attack_a_target_and_is_kill（支持爆炸半径）
+    # 核心改动：step_attack_a_target_and_is_kill（支持b爆炸半径）
     # ============================================================
     def step_attack_a_target_and_is_kill(self, uav_list, fun):
         """
@@ -193,7 +193,7 @@ class Bullet(AbstractEntry):
                 if dist_to_impact <= self.explosion_radius:
                     # 进行毁伤判定
                     is_killed = single_probability_event(self.hit_kill_probability)
-                    logger.info(
+                    print(
                         f"无人机 {fun(uav)} 在爆炸半径内 (距离={dist_to_impact:.1f}m)，"
                         f"命中概率 {self.hit_kill_probability}，判定结果：{'击毁' if is_killed else '未击毁'}"
                         f"{self.target}---------{uav}"

@@ -31,7 +31,7 @@ from trainer.drone.mul_uav_env import MultiUavEnv
 # ==========================================
 class PPOArgs:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    total_timesteps = 2_000_000
+    total_timesteps = 2_000_000_000
     num_envs = 1
     num_steps = 2048
     batch_size = 256

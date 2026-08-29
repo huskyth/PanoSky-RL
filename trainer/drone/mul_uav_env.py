@@ -17,6 +17,7 @@ from .uav_meta_info import TrainUAV
 from pathlib import Path
 from .weapons.interfaces.environment_interface import EnvironmentInterface
 from trainer.utils.format_logger import AppLogger, _green_log_str
+import swanlab as sw
 
 warnings.filterwarnings('ignore')
 logger = AppLogger().get_logger()
@@ -447,7 +448,7 @@ class MultiUavEnv:
         if not self.is_debug:
             return
 
-        SCALE_FACTOR = 20.0
+        SCALE_FACTOR = 5.0
         REFERENCE_POINT = self.target
 
         def scale_pos(pos):
@@ -673,6 +674,7 @@ class MultiUavEnv:
                     lateral_displacement = np.linalg.norm(
                         displacement_vec - np.dot(displacement_vec, to_weapon) * to_weapon
                     )
+                    # sw.log({"displacement_vec": lateral_displacement})
 
             # ============================================================
             # 核心改动：闪避奖励改为连续比例奖励
@@ -682,7 +684,7 @@ class MultiUavEnv:
             if weapon_state == 3:  # FIRE 状态
                 # 位移 0~30m 映射到 -0.5 ~ 2.0
                 # 10m 以下为负奖励（没躲开），10m 以上为正奖励
-                r_dodge = -0.5 + (lateral_displacement / 30.0) * 2.5
+                r_dodge = -0.5 + (lateral_displacement / 200.0) * 2.5
                 r_dodge = np.clip(r_dodge, -0.5, 2.0)
                 self.r_msg[idx] += f'闪避({lateral_displacement:.1f}m)+{r_dodge:.2f}, '
 
@@ -714,7 +716,10 @@ class MultiUavEnv:
         if r_task_success > 0:
             self.append_data(action)
             self.dump("任务完成！")
-            logger.info(f"PID-{os.getpid()}, mode-{self.mode}, episode-{self.n_episode} 任务完成！")
+            # 绿色
+            green = "\033[92m"
+            reset = "\033[0m"
+            logger.info(f"{green}PID-{os.getpid()}, mode-{self.mode}, episode-{self.n_episode} 任务完成！{reset}")
             self.n_episode += 1
             return
 
