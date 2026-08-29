@@ -651,20 +651,25 @@ class MultiUavEnv:
 
             # ---- 闪避奖励（开火时主导） ----
             r_dodge = 0.0
-            if weapon_state == 3:  # FIRE
-                # 位移 0~30m 映射到 -0.2 ~ 1.5
-                r_dodge = -0.5 + (lateral_displacement / 200.0) * 2.5
-                r_dodge = np.clip(r_dodge, -0.2, 1.5)
-                self.r_msg[idx] += f'闪避({lateral_displacement:.1f}m)+{r_dodge:.2f}, '
 
             # ---- 接近目标奖励（开火时削弱） ----
             r_approach = 0.0
-            if last_p and idx < len(last_p):
-                prev_dist = compute_distance(last_p[idx].position, self.target)  # 三维距离
-                if dist_to_target < prev_dist:
-                    r_approach = 0.02 * (prev_dist - dist_to_target) / self.uav_velocity_value
-                    r_approach = min(r_approach, 0.05)
-                    self.r_msg[idx] += f'靠近+{r_approach:.2f}, '
+
+            if weapon_state == 3:  # FIRE
+                # 位移 0~30m 映射到 -0.2 ~ 1.5
+                r_dodge = -0.5 + (lateral_displacement / 200.0) * 2
+                r_dodge = np.clip(r_dodge, -0.2, 1.5)
+                self.r_msg[idx] += f'闪避({lateral_displacement:.1f}m)+{r_dodge:.2f}, '
+                sw.log({"r_ShanBi": r_dodge})
+
+            else:
+
+                if last_p and idx < len(last_p):
+                    prev_dist = compute_distance(last_p[idx].position, self.target)  # 三维距离
+                    if dist_to_target < prev_dist:
+                        r_approach = 0.02 * (prev_dist - dist_to_target) / self.uav_velocity_value
+                        r_approach = min(r_approach, 0.05)
+                        self.r_msg[idx] += f'靠近+{r_approach:.2f}, '
 
             # ---- 太远惩罚 ----
             r_far = 0.0
