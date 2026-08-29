@@ -98,14 +98,6 @@ class MultiUavEnv:
 
         assert self.task_success_radius > self.uav_velocity_value
 
-        # 课程学习参数
-        self.curriculum_stage = 0
-        self.curriculum_thresholds = [1.0, 0.5, 0.3]
-        self.curriculum_stage_rewards = [0.0, 5.0, 10.0]
-        self.stage_success_history = []
-        self.current_stage_success_count = 0
-        self.current_stage_episodes = 0
-
     def init_space(self):
         self.action_space = []
         self.observation_space = []
@@ -204,32 +196,16 @@ class MultiUavEnv:
         self.reward = None
         self.is_terminal = [False for _ in range(self.n_total_uavs)]
 
-        if self.mode == "train":
-            self.current_stage_episodes += 1
-            if self.current_stage_episodes >= 20:
-                success_rate = self.current_stage_success_count / self.current_stage_episodes
-                self.stage_success_history.append(success_rate)
-                if len(self.stage_success_history) >= 3:
-                    avg_rate = np.mean(self.stage_success_history[-3:])
-                    if avg_rate >= self.curriculum_thresholds[self.curriculum_stage]:
-                        self.curriculum_stage = min(self.curriculum_stage + 1, len(self.curriculum_thresholds) - 1)
-                        logger.info(f"课程学习升级到阶段 {self.curriculum_stage}，成功率 {avg_rate:.2f}")
-                        self.stage_success_history = []
-                self.current_stage_success_count = 0
-                self.current_stage_episodes = 0
-
-        stage_scale = 1.0 - 0.2 * self.curriculum_stage
-        effective_weapon_dist = max(self.dis_target_weapon * stage_scale, 100.0)
-        sw.log({"effective_weapon_dist": effective_weapon_dist})
-        self.target[0] = float(random.uniform(self.map.map_min_x + effective_weapon_dist,
-                                              self.map.map_max_x - effective_weapon_dist))
-        self.target[1] = float(random.uniform(self.map.map_min_y + effective_weapon_dist,
-                                              self.map.map_max_y - effective_weapon_dist))
+        # 直接使用配置中的固定距离，不再做课程学习缩放
+        self.target[0] = float(random.uniform(self.map.map_min_x + self.dis_target_weapon,
+                                              self.map.map_max_x - self.dis_target_weapon))
+        self.target[1] = float(random.uniform(self.map.map_min_y + self.dis_target_weapon,
+                                              self.map.map_max_y - self.dis_target_weapon))
         self.target[2] = float(self.map.search_nh(self.target[0], self.target[1]) + self.coll_safe_dis)
 
         theta_w = 2 * math.pi * random.uniform(0, 1)
-        self.weapon[0] = float(self.target[0] + effective_weapon_dist * math.cos(theta_w))
-        self.weapon[1] = float(self.target[1] + effective_weapon_dist * math.sin(theta_w))
+        self.weapon[0] = float(self.target[0] + self.dis_target_weapon * math.cos(theta_w))
+        self.weapon[1] = float(self.target[1] + self.dis_target_weapon * math.sin(theta_w))
         self.weapon[2] = float(self.map.search_nh(self.weapon[0], self.weapon[1]) + self.coll_safe_dis)
 
         for uav in range(self.n_total_uavs):
@@ -248,9 +224,9 @@ class MultiUavEnv:
         which_idx = self._get_game_target_idx()
         data_save = {"uva_state": [x.to_dict() for x in self.raw_uavs],
                      "uva_actions": [-1 for _ in range(self.n_total_uavs)],
-                     "_episode_steps": self._episode_steps, "reward": self.reward,
-                     "c_target_id": id(self.raw_uavs[which_idx]) if which_idx is not None else "None",
-                     "curriculum_stage": self.curriculum_stage}
+                     "_episode_steps": self._episode_steps,
+                     "reward": self.reward,
+                     "c_target_id": id(self.raw_uavs[which_idx]) if which_idx is not None else "None"}
         self.episode_data.append(data_save)
 
         from datetime import datetime
@@ -437,8 +413,7 @@ class MultiUavEnv:
                      "_episode_steps": self._episode_steps,
                      "reward": self.reward,
                      "c_target_id": id(self.raw_uavs[which_idx]) if which_idx is not None else "None",
-                     'r_msg': self.r_msg,
-                     "curriculum_stage": self.curriculum_stage}
+                     'r_msg': self.r_msg}
         self.episode_data.append(data_save)
 
     # ============================================================
@@ -703,7 +678,7 @@ class MultiUavEnv:
             rewards[idx] = np.clip(rewards[idx], -2.0, 2.0)
             self.r_msg[idx] += f'dist={dist_to_weapon:.0f}'
 
-        # ===== 4. 三维队形奖励（只在两架飞机都在 1826m 以外时生效） =====
+        # ===== 4. 三维队形奖励（只在两架飞机都在 1500m 以外时生效） =====
         r_formation = 0.0
         alive_idx = [i for i, uav in enumerate(current_p) if uav.status == UAVState.ALIVE]
         if len(alive_idx) >= 2:
@@ -715,7 +690,7 @@ class MultiUavEnv:
             norm0 = np.linalg.norm(v0)
             norm1 = np.linalg.norm(v1)
 
-            # ==== 关键：使用三维距离阈值 1826m ====
+            # 使用三维距离阈值 1500m（开火线附近）
             if norm0 > 1500.0 and norm1 > 1500.0 and norm0 > 0 and norm1 > 0:
                 v0_unit = v0 / norm0
                 v1_unit = v1 / norm1
