@@ -162,6 +162,8 @@ class MultiUavEnv:
         # 用于记录上一步位置（计算位移）
         self.prev_positions = None
 
+        self.dodge_count = 0  # 连续闪避次数
+        self.dodge_stall_steps = 0  # 连续未闪避步数
         logger.info(
             f"PID-{os.getpid()}, 【{'训练' if self.mode == 'train' else '评估'}】环境初始化完成，"
             f"任务机数量={self.n_task_uavs}, 诱饵机数量={self.n_decoy_uavs}, "
@@ -188,6 +190,10 @@ class MultiUavEnv:
         return uav_x, uav_y, uav_z
 
     def reset(self):
+
+        self.dodge_count = 0
+        self.dodge_stall_steps = 0
+
         self.target = [0, 0, 0]
         self.weapon = [0, 0, 0]
         self.raw_uavs = []
@@ -612,7 +618,7 @@ class MultiUavEnv:
         for idx in range(self.n_total_uavs):
             uav = current_p[idx]
             if uav.status == UAVState.ALIVE:
-                dist_to_target = compute_distance(uav.position, self.target)  # 三维距离
+                dist_to_target = compute_distance(uav.position, self.target)
                 if dist_to_target <= self.task_success_radius:
                     r_task_success = 100.0
                     self.is_terminal = [True for _ in range(self.n_total_uavs)]
@@ -632,8 +638,8 @@ class MultiUavEnv:
                 continue
 
             r_step = -0.01
-            dist_to_weapon = compute_distance(uav.position, self.weapon)  # 三维距离
-            dist_to_target = compute_distance(uav.position, self.target)  # 三维距离
+            dist_to_weapon = compute_distance(uav.position, self.weapon)
+            dist_to_target = compute_distance(uav.position, self.target)
 
             # ---- 计算横向位移（三维切向位移） ----
             lateral_displacement = 0.0
@@ -649,23 +655,34 @@ class MultiUavEnv:
                         displacement_vec - np.dot(displacement_vec, to_weapon) * to_weapon
                     )
 
-            # ---- 闪避奖励（开火时主导） ----
+            # ============================================================
+            # 累积闪避奖励（仅在连续开火且连续闪避时累积）
+            # ============================================================
             r_dodge = 0.0
+
+            if weapon_state == 3:  # FIRE 状态
+                if lateral_displacement > 10.0:  # 成功闪避（位移超过爆炸半径）
+                    # 连续闪避，计数+1
+                    self.dodge_count += 1
+                    # 递增奖励：第一次 +0.5，第二次 +0.8，第三次 +1.1...
+                    r_dodge = 0.5 + 0.3 * (self.dodge_count - 1)
+                    r_dodge = min(r_dodge, 2.0)  # 上限 2.0
+                    self.r_msg[idx] += f'闪避x{self.dodge_count}+{r_dodge:.2f}, '
+                else:
+                    # 开火但没闪避 → 重置计数！
+                    self.dodge_count = 0
+                    r_dodge = -0.2
+                    self.r_msg[idx] += '闪避中断-0.2, '
+            else:
+                # 不是开火状态 → 重置计数！
+                self.dodge_count = 0
+                # 非开火状态不给闪避奖励
 
             # ---- 接近目标奖励（开火时削弱） ----
             r_approach = 0.0
-
-            if weapon_state == 3:  # FIRE
-                # 位移 0~30m 映射到 -0.2 ~ 1.5
-                r_dodge = -0.5 + (lateral_displacement / 200.0) * 2
-                r_dodge = np.clip(r_dodge, -0.2, 1.5)
-                self.r_msg[idx] += f'闪避({lateral_displacement:.1f}m)+{r_dodge:.2f}, '
-                # sw.log({"r_ShanBi": r_dodge})
-
-            else:
-
+            if weapon_state != 3:
                 if last_p and idx < len(last_p):
-                    prev_dist = compute_distance(last_p[idx].position, self.target)  # 三维距离
+                    prev_dist = compute_distance(last_p[idx].position, self.target)
                     if dist_to_target < prev_dist:
                         r_approach = 0.02 * (prev_dist - dist_to_target) / self.uav_velocity_value
                         r_approach = min(r_approach, 0.05)
@@ -677,37 +694,14 @@ class MultiUavEnv:
                 r_far = -0.05
                 self.r_msg[idx] += '太远-0.05, '
 
+            # ---- 汇总 ----
             rewards[idx] = r_step + r_dodge + r_approach + r_far + r_task_success
             rewards[idx] = np.clip(rewards[idx], -2.0, 2.0)
             self.r_msg[idx] += f'dist={dist_to_weapon:.0f}'
 
-        # ===== 4. 三维队形奖励（只在两架飞机都在 1500m 以外时生效） =====
-        r_formation = 0.0
-        alive_idx = [i for i, uav in enumerate(current_p) if uav.status == UAVState.ALIVE]
-        if False:
-            w_pos = np.array(self.weapon, dtype=float)  # 三维武器位置
-            pos0 = np.array(current_p[alive_idx[0]].position, dtype=float)
-            pos1 = np.array(current_p[alive_idx[1]].position, dtype=float)
-            v0 = pos0 - w_pos
-            v1 = pos1 - w_pos
-            norm0 = np.linalg.norm(v0)
-            norm1 = np.linalg.norm(v1)
-
-            # 使用三维距离阈值 1500m（开火线附近）
-            if norm0 > 1500.0 and norm1 > 1500.0 and norm0 > 0 and norm1 > 0:
-                v0_unit = v0 / norm0
-                v1_unit = v1 / norm1
-                cos_angle = np.dot(v0_unit, v1_unit)
-                # 夹角接近180°（cos=-1）奖励越高
-                r_formation = 0.02 * (1 - cos_angle) / 2 - 0.02  # 最大 0.02
-                # 将队形奖励平分给两架飞机
-                for idx in alive_idx:
-                    rewards[idx] += r_formation / len(alive_idx)
-                    self.r_msg[idx] += f'队形+{r_formation / len(alive_idx):.2f}, '
-
         self.reward = rewards
 
-        # ===== 5. 终局判定 =====
+        # ===== 4. 终局判定 =====
         if r_task_success > 0:
             self.append_data(action)
             self.dump("任务完成！")
