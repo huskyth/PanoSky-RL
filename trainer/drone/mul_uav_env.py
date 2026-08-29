@@ -680,13 +680,12 @@ class MultiUavEnv:
 
             # ---- 接近目标奖励（开火时削弱） ----
             r_approach = 0.0
-            if weapon_state != 3:
-                if last_p and idx < len(last_p):
-                    prev_dist = compute_distance(last_p[idx].position, self.target)
-                    if dist_to_target < prev_dist:
-                        r_approach = 0.02 * (prev_dist - dist_to_target) / self.uav_velocity_value
-                        r_approach = min(r_approach, 0.05)
-                        self.r_msg[idx] += f'靠近+{r_approach:.2f}, '
+            if last_p and idx < len(last_p):
+                prev_dist = compute_distance(last_p[idx].position, self.target)
+                if dist_to_target < prev_dist:
+                    r_approach = 0.02 * (prev_dist - dist_to_target) / self.uav_velocity_value
+                    r_approach = min(r_approach, 0.05)
+                    self.r_msg[idx] += f'靠近+{r_approach:.2f}, '
 
             # ---- 太远惩罚 ----
             r_far = 0.0
