@@ -66,7 +66,7 @@ class WeaponConfig(AbstractComponentConfig):
             self.bullet_load_speed:（单位：发/分钟）
         '''
         super().__init__(**common_config)
-        self.BULLET_CAPACITY = 100000000
+        self.BULLET_CAPACITY = 75*4
         self.bullet_load_speed = 400
         self.bullet_fire_speed = 75
         self.bullet_velocity = 1000
