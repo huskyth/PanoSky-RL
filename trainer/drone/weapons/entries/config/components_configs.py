@@ -71,7 +71,7 @@ class WeaponConfig(AbstractComponentConfig):
         self.bullet_fire_speed = 75
         self.bullet_velocity = 1000
         self.hit_kill_probability = 1  # 0.005
-        self.explosion_radius = 114  # 0.005
+        self.explosion_radius = 228  # 0.005
 
     def build_dict(self):
         return {
