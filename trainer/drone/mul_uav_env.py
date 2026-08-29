@@ -220,7 +220,7 @@ class MultiUavEnv:
 
         stage_scale = 1.0 - 0.2 * self.curriculum_stage
         effective_weapon_dist = max(self.dis_target_weapon * stage_scale, 100.0)
-
+        sw.log({"effective_weapon_dist": effective_weapon_dist})
         self.target[0] = float(random.uniform(self.map.map_min_x + effective_weapon_dist,
                                               self.map.map_max_x - effective_weapon_dist))
         self.target[1] = float(random.uniform(self.map.map_min_y + effective_weapon_dist,
