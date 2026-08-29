@@ -616,7 +616,6 @@ class MultiUavEnv:
                 if dist_to_target <= self.task_success_radius:
                     r_task_success = 100.0
                     self.is_terminal = [True for _ in range(self.n_total_uavs)]
-                    self.current_stage_success_count += 1
                     self.dump("任务完成！")
                     break
 
