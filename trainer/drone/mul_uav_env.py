@@ -680,7 +680,7 @@ class MultiUavEnv:
         # ===== 4. 三维队形奖励（只在两架飞机都在 1500m 以外时生效） =====
         r_formation = 0.0
         alive_idx = [i for i, uav in enumerate(current_p) if uav.status == UAVState.ALIVE]
-        if len(alive_idx) >= 2:
+        if False:
             w_pos = np.array(self.weapon, dtype=float)  # 三维武器位置
             pos0 = np.array(current_p[alive_idx[0]].position, dtype=float)
             pos1 = np.array(current_p[alive_idx[1]].position, dtype=float)
