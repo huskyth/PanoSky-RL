@@ -661,7 +661,7 @@ class MultiUavEnv:
             r_dodge = 0.0
 
             if weapon_state == 3:  # FIRE 状态
-                if lateral_displacement > 10.0:  # 成功闪避（位移超过爆炸半径）
+                if lateral_displacement > 40.0:  # 成功闪避（位移超过爆炸半径）
                     # 连续闪避，计数+1
                     self.dodge_count += 1
                     # 递增奖励：第一次 +0.5，第二次 +0.8，第三次 +1.1...
