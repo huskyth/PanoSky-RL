@@ -637,7 +637,7 @@ class MultiUavEnv:
         for idx in range(self.n_total_uavs):
             uav = current_p[idx]
             if uav.status == UAVState.ALIVE:
-                dist_to_target = compute_distance(uav.position, self.target)
+                dist_to_target = compute_distance(uav.position, self.target)  # 三维距离
                 if dist_to_target <= self.task_success_radius:
                     r_task_success = 100.0
                     self.is_terminal = [True for _ in range(self.n_total_uavs)]
@@ -658,10 +658,10 @@ class MultiUavEnv:
                 continue
 
             r_step = -0.01
-            dist_to_weapon = compute_distance(uav.position, self.weapon)
-            dist_to_target = compute_distance(uav.position, self.target)
+            dist_to_weapon = compute_distance(uav.position, self.weapon)  # 三维距离
+            dist_to_target = compute_distance(uav.position, self.target)  # 三维距离
 
-            # ---- 计算横向位移（相对于武器方向） ----
+            # ---- 计算横向位移（三维切向位移） ----
             lateral_displacement = 0.0
             if last_p and idx < len(last_p):
                 prev_pos = np.array(last_p[idx].position, dtype=float)
@@ -687,7 +687,7 @@ class MultiUavEnv:
             r_approach = 0.0
             approach_scale = 0.3 if weapon_state == 3 else 1.0
             if last_p and idx < len(last_p):
-                prev_dist = compute_distance(last_p[idx].position, self.target)
+                prev_dist = compute_distance(last_p[idx].position, self.target)  # 三维距离
                 if dist_to_target < prev_dist:
                     r_approach = 0.02 * (prev_dist - dist_to_target) / self.uav_velocity_value
                     r_approach = min(r_approach, 0.05) * approach_scale
@@ -703,23 +703,23 @@ class MultiUavEnv:
             rewards[idx] = np.clip(rewards[idx], -2.0, 2.0)
             self.r_msg[idx] += f'dist={dist_to_weapon:.0f}'
 
-        # ===== 4. 队形奖励（只在两架飞机都在 1826m 以外时生效） =====
+        # ===== 4. 三维队形奖励（只在两架飞机都在 1826m 以外时生效） =====
         r_formation = 0.0
         alive_idx = [i for i, uav in enumerate(current_p) if uav.status == UAVState.ALIVE]
         if len(alive_idx) >= 2:
-            w_pos = np.array(self.weapon[:2], dtype=float)
-            pos0 = np.array(current_p[alive_idx[0]].position[:2], dtype=float)
-            pos1 = np.array(current_p[alive_idx[1]].position[:2], dtype=float)
+            w_pos = np.array(self.weapon, dtype=float)  # 三维武器位置
+            pos0 = np.array(current_p[alive_idx[0]].position, dtype=float)
+            pos1 = np.array(current_p[alive_idx[1]].position, dtype=float)
             v0 = pos0 - w_pos
             v1 = pos1 - w_pos
             norm0 = np.linalg.norm(v0)
             norm1 = np.linalg.norm(v1)
 
-            # ==== 关键修改：只在两架飞机距离武器都大于 1826m 时给予队形奖励 ====
+            # ==== 关键：使用三维距离阈值 1826m ====
             if norm0 > 1500.0 and norm1 > 1500.0 and norm0 > 0 and norm1 > 0:
-                v0 = v0 / norm0
-                v1 = v1 / norm1
-                cos_angle = np.dot(v0, v1)
+                v0_unit = v0 / norm0
+                v1_unit = v1 / norm1
+                cos_angle = np.dot(v0_unit, v1_unit)
                 # 夹角接近180°（cos=-1）奖励越高
                 r_formation = 0.02 * (1 - cos_angle) / 2 - 0.02  # 最大 0.02
                 # 将队形奖励平分给两架飞机
