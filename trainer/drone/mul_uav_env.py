@@ -703,7 +703,7 @@ class MultiUavEnv:
             rewards[idx] = np.clip(rewards[idx], -2.0, 2.0)
             self.r_msg[idx] += f'dist={dist_to_weapon:.0f}'
 
-        # ===== 4. 队形奖励（促进左右夹击） =====
+        # ===== 4. 队形奖励（只在两架飞机都在 1826m 以外时生效） =====
         r_formation = 0.0
         alive_idx = [i for i, uav in enumerate(current_p) if uav.status == UAVState.ALIVE]
         if len(alive_idx) >= 2:
@@ -714,13 +714,15 @@ class MultiUavEnv:
             v1 = pos1 - w_pos
             norm0 = np.linalg.norm(v0)
             norm1 = np.linalg.norm(v1)
-            if norm0 > 0 and norm1 > 0:
+
+            # ==== 关键修改：只在两架飞机距离武器都大于 1826m 时给予队形奖励 ====
+            if norm0 > 1500.0 and norm1 > 1500.0 and norm0 > 0 and norm1 > 0:
                 v0 = v0 / norm0
                 v1 = v1 / norm1
                 cos_angle = np.dot(v0, v1)
-                # 夹角接近180°（cos=-1）奖励
-                r_formation = 0.02 * (1 - cos_angle) / 2 - 0.02  # 最大0.02
-                # 分摊到两架飞机
+                # 夹角接近180°（cos=-1）奖励越高
+                r_formation = 0.02 * (1 - cos_angle) / 2 - 0.02  # 最大 0.02
+                # 将队形奖励平分给两架飞机
                 for idx in alive_idx:
                     rewards[idx] += r_formation / len(alive_idx)
                     self.r_msg[idx] += f'队形+{r_formation / len(alive_idx):.2f}, '
@@ -731,7 +733,6 @@ class MultiUavEnv:
         if r_task_success > 0:
             self.append_data(action)
             self.dump("任务完成！")
-            # 绿色
             green = "\033[92m"
             reset = "\033[0m"
             logger.info(f"{green}PID-{os.getpid()}, mode-{self.mode}, episode-{self.n_episode} 任务完成！{reset}")
