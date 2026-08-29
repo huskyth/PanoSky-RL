@@ -87,6 +87,7 @@ class EscapeAfterFireTester:
         max_speed = self.env.uav_velocity_value
         action_xy = direction * (self.speed / max_speed)
         action_xy = np.clip(action_xy, -1.0, 1.0)
+
         return np.array([action_xy[0], action_xy[1], 0.0])
 
     def compute_hold_action(self, uav_pos):
@@ -156,7 +157,7 @@ class EscapeAfterFireTester:
                 hit = True
                 break
 
-            if step % 5 == 0:
+            if True:
                 phase = "悬停" if not fired else "圆周"
                 print(f"[{step:3d}] {phase} | 状态: {state_name} | 距离: {dist_to_weapon:.1f}m | 子弹: {bullet_count}")
 
@@ -164,9 +165,9 @@ class EscapeAfterFireTester:
             step += 1
 
             # 如果距离偏离半径太多，可能脱离开火区，提前结束
-            if fired and abs(dist_to_weapon - self.radius) > 100:
-                print(f"\n⚠️ 距离偏离半径过大 ({dist_to_weapon:.1f}m)，测试结束")
-                break
+            # if fired and abs(dist_to_weapon - self.radius) > 100:
+            #     print(f"\n⚠️ 距离偏离半径过大 ({dist_to_weapon:.1f}m)，测试结束")
+            #     break
 
             # 如果超时未开火，强制结束
             if not fired and wait_count > self.wait_steps + 10:
@@ -216,7 +217,7 @@ class EscapeAfterFireTester:
 
 def main():
     tester = EscapeAfterFireTester(
-        speed=250.0,       # 切向速度 (m/s)
+        speed=1000050.0,       # 切向速度 (m/s)
         radius=1500.0,     # 圆周半径 (m)
         step_limit=300,
         wait_steps=50,     # 最多等待50步（5秒）开火

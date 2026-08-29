@@ -165,17 +165,17 @@ class Bullet(AbstractEntry):
             logger.warning("子弹目标已丢失，子弹失效")
             return Weapon.BulletState.NO_KILLED_NO_USE
 
-        logger.info(f"id为：{self.get_id()} 的子弹还需要飞行的时间：{self.all_time_to_fly}")
+        # logger.info(f"id为：{self.get_id()} 的子弹还需要飞行的时间：{self.all_time_to_fly}")
 
         # ---- 1. 如果子弹还在飞行中 ----
         if self.all_time_to_fly > UNIT_TIME:
             self.all_time_to_fly -= UNIT_TIME
-            logger.info(f"id为：{self.get_id()} 的子弹飞行中")
+            # logger.info(f"id为：{self.get_id()} 的子弹飞行中")
             return Weapon.BulletState.FLYING_USEING
 
         # ---- 2. 子弹到达目标位置 ----
         # 计算子弹落点（使用目标当前位置，或目标发射时的位置）
-
+        logger.info(f"id为：{self.get_id()} 的子弹到达目标位置")
         # ============================================================
         # 爆炸半径模式：对范围内的所有无人机进行判定
         # ============================================================
