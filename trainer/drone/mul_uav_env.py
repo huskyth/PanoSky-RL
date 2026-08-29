@@ -445,9 +445,9 @@ class MultiUavEnv:
 
         self.prev_positions = [uav.position.copy() for uav in self.raw_uavs]
 
-        if self._episode_steps % 10 == 0 and self.is_debug:
-            dist_str = ", ".join([f"UAV{i}={step_distances[i]:.2f}m" for i in range(len(step_distances))])
-            logger.info(f"Step {self._episode_steps} 位移: {dist_str}")
+        # if self._episode_steps % 10 == 0 and self.is_debug:
+        #     dist_str = ", ".join([f"UAV{i}={step_distances[i]:.2f}m" for i in range(len(step_distances))])
+        #     logger.info(f"Step {self._episode_steps} 位移: {dist_str}")
 
         weapon_state = 0
         tuning_time = 0.0
