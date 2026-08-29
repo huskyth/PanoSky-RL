@@ -626,9 +626,6 @@ class MultiUavEnv:
 
         self._step_buffer = []
 
-    # ============================================================
-    # set_reward
-    # ============================================================
     def set_reward(self, last_p, action, last_target, lat_stat):
         current_p = self.raw_uavs
         rewards = [0.0 for _ in range(self.n_total_uavs)]
@@ -648,7 +645,7 @@ class MultiUavEnv:
                     break
 
         # ===== 2. 获取当前武器状态 =====
-        weapon_state = EnvironmentInterface.get_weapon_state()  # 0=NORMAL,1=TUNING,2=CAPTURE,3=FIRE
+        weapon_state = EnvironmentInterface.get_weapon_state()
 
         # ===== 3. 个体奖励 =====
         for idx in range(self.n_total_uavs):
@@ -660,52 +657,56 @@ class MultiUavEnv:
                 continue
 
             r_step = -0.01
+            dist_to_weapon = compute_distance(uav.position, self.weapon)
+            dist_to_target = compute_distance(uav.position, self.target)
 
-            target_idx = self._get_game_target_idx()
-            is_targeted = (target_idx == idx)
-            dist_to_weapon = compute_distance(self.weapon, uav.position)
-
-            # ---- 计算横向位移（相对于武器方向） ----
+            # ---- 计算横向位移（3D切向位移） ----
             lateral_displacement = 0.0
             if last_p and idx < len(last_p):
-                prev_pos = np.array(last_p[idx].position[:2])
-                curr_pos = np.array(uav.position[:2])
-                to_weapon = np.array(self.weapon[:2]) - curr_pos
-                if np.linalg.norm(to_weapon) > 0:
-                    to_weapon = to_weapon / np.linalg.norm(to_weapon)
-                    # 计算垂直方向上的位移
+                prev_pos = np.array(last_p[idx].position, dtype=float)
+                curr_pos = np.array(uav.position, dtype=float)
+                to_weapon = curr_pos - np.array(self.weapon, dtype=float)
+                norm = np.linalg.norm(to_weapon)
+                if norm > 0:
+                    to_weapon = to_weapon / norm
                     displacement_vec = curr_pos - prev_pos
                     lateral_displacement = np.linalg.norm(
-                        displacement_vec - np.dot(displacement_vec, to_weapon) * to_weapon)
+                        displacement_vec - np.dot(displacement_vec, to_weapon) * to_weapon
+                    )
 
-            # ---- 闪避奖励（核心！） ----
+            # ============================================================
+            # 核心改动：闪避奖励改为连续比例奖励
+            # 横向位移越大，奖励越高（线性映射，上限2.0）
+            # ============================================================
             r_dodge = 0.0
             if weapon_state == 3:  # FIRE 状态
-                if lateral_displacement > 10.0:  # 横向位移 > 10m（假设爆炸半径 10m）
-                    r_dodge = 1.0  # 成功闪避！
-                    self.r_msg[idx] += '闪避+1.0, '
-                else:
-                    r_dodge = -0.2  # 没躲开，被击中
-                    self.r_msg[idx] += '未闪避-0.2, '
+                # 位移 0~30m 映射到 -0.5 ~ 2.0
+                # 10m 以下为负奖励（没躲开），10m 以上为正奖励
+                r_dodge = -0.5 + (lateral_displacement / 30.0) * 2.5
+                r_dodge = np.clip(r_dodge, -0.5, 2.0)
+                self.r_msg[idx] += f'闪避({lateral_displacement:.1f}m)+{r_dodge:.2f}, '
 
-            # ---- 诱饵/刺客任务奖励 ----
-            r_role = 0.0
-            if is_targeted:
-                # 被锁定时，保持在 1500m 附近
-                if 1400 < dist_to_weapon < 1600:
-                    r_role = 0.02
-                else:
-                    r_role = -0.01 * (abs(dist_to_weapon - 1500) / 100)
-                self.r_msg[idx] += f'诱饵(dist={dist_to_weapon:.0f}), '
+            # ---- 向目标前进奖励 ----
+            r_approach = 0.0
+            if last_p and idx < len(last_p):
+                prev_dist = compute_distance(last_p[idx].position, self.target)
+                if dist_to_target < prev_dist:
+                    r_approach = 0.02 * (prev_dist - dist_to_target) / self.uav_velocity_value
+                    r_approach = min(r_approach, 0.05)
+                    self.r_msg[idx] += f'靠近+{r_approach:.2f}, '
             else:
-                # 没被锁定，靠近目标
-                if dist_to_weapon > 1200:
-                    r_role = 0.02 * (2000 - dist_to_weapon) / 800
-                self.r_msg[idx] += f'刺客(dist={dist_to_weapon:.0f}), '
+                r_approach = 0.01
+
+            # ---- 太远惩罚 ----
+            r_far_penalty = 0.0
+            if dist_to_weapon > 2500:
+                r_far_penalty = -0.05
+                self.r_msg[idx] += '太远-0.05, '
 
             # ---- 汇总 ----
-            rewards[idx] = r_step + r_dodge + r_role + r_task_success
+            rewards[idx] = r_step + r_dodge + r_approach + r_far_penalty + r_task_success
             rewards[idx] = np.clip(rewards[idx], -2.0, 2.0)
+            self.r_msg[idx] += f'dist={dist_to_weapon:.0f}'
 
         self.reward = rewards
 
