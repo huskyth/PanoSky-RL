@@ -1,3 +1,5 @@
+import copy
+
 import numpy as np
 
 from trainer.drone.weapons.entries.abstract_entry import *
@@ -137,6 +139,8 @@ class Bullet(AbstractEntry):
         else:
             logger.warning("子弹创建时 target 为 None")
 
+        self.impact_point = np.array(copy.deepcopy(self.target.position), dtype=float)
+
     def _calculate_all_time_of_fly(self):
         if self.target is None:
             return float('inf')
@@ -171,20 +175,19 @@ class Bullet(AbstractEntry):
 
         # ---- 2. 子弹到达目标位置 ----
         # 计算子弹落点（使用目标当前位置，或目标发射时的位置）
-        impact_point = np.array(self.target.position, dtype=float)
 
         # ============================================================
         # 爆炸半径模式：对范围内的所有无人机进行判定
         # ============================================================
         if self.explosion_radius > 0:
-            logger.info(f"id为：{self.get_id()} 的子弹到达目标 {impact_point}，爆炸半径 {self.explosion_radius}m")
+            logger.info(f"id为：{self.get_id()} 的子弹到达目标 {self.impact_point}，爆炸半径 {self.explosion_radius}m")
             hit_any = False
 
             # 遍历所有无人机（复制列表，避免在遍历中修改）
             for uav in uav_list[:]:
                 if uav is None:
                     continue
-                dist_to_impact = compute_distance(uav.position, impact_point)
+                dist_to_impact = compute_distance(uav.position, self.impact_point)
 
                 # 如果无人机在爆炸半径内
                 if dist_to_impact <= self.explosion_radius:
@@ -193,6 +196,7 @@ class Bullet(AbstractEntry):
                     logger.info(
                         f"无人机 {fun(uav)} 在爆炸半径内 (距离={dist_to_impact:.1f}m)，"
                         f"命中概率 {self.hit_kill_probability}，判定结果：{'击毁' if is_killed else '未击毁'}"
+                        f"{self.target}---------{uav}"
                     )
 
                     if is_killed:
