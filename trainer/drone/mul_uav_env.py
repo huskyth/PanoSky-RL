@@ -632,7 +632,7 @@ class MultiUavEnv:
         rewards = [0.0 for _ in range(self.n_total_uavs)]
         self.r_msg = ['' for _ in range(self.n_total_uavs)]
 
-        # ===== 1. 终端奖励（任务成功） =====
+        # ===== 1. 终端奖励 =====
         r_task_success = 0.0
         for idx in range(self.n_total_uavs):
             uav = current_p[idx]
@@ -645,8 +645,8 @@ class MultiUavEnv:
                     self.dump("任务完成！")
                     break
 
-        # ===== 2. 获取当前武器状态 =====
-        weapon_state = EnvironmentInterface.get_weapon_state()
+        # ===== 2. 武器状态 =====
+        weapon_state = EnvironmentInterface.get_weapon_state()  # 0=NORMAL,1=TUNING,2=CAPTURE,3=FIRE
 
         # ===== 3. 个体奖励 =====
         for idx in range(self.n_total_uavs):
@@ -661,7 +661,7 @@ class MultiUavEnv:
             dist_to_weapon = compute_distance(uav.position, self.weapon)
             dist_to_target = compute_distance(uav.position, self.target)
 
-            # ---- 计算横向位移（3D切向位移） ----
+            # ---- 计算横向位移（相对于武器方向） ----
             lateral_displacement = 0.0
             if last_p and idx < len(last_p):
                 prev_pos = np.array(last_p[idx].position, dtype=float)
@@ -674,45 +674,60 @@ class MultiUavEnv:
                     lateral_displacement = np.linalg.norm(
                         displacement_vec - np.dot(displacement_vec, to_weapon) * to_weapon
                     )
-                    # sw.log({"displacement_vec": lateral_displacement})
 
-            # ============================================================
-            # 核心改动：闪避奖励改为连续比例奖励
-            # 横向位移越大，奖励越高（线性映射，上限2.0）
-            # ============================================================
+            # ---- 闪避奖励（开火时主导） ----
             r_dodge = 0.0
-            if weapon_state == 3:  # FIRE 状态
-                # 位移 0~30m 映射到 -0.5 ~ 2.0
-                # 10m 以下为负奖励（没躲开），10m 以上为正奖励
-                r_dodge = -0.5 + (lateral_displacement / 200.0) * 2.5
-                r_dodge = np.clip(r_dodge, -0.5, 2.0)
+            if weapon_state == 3:  # FIRE
+                # 位移 0~30m 映射到 -0.2 ~ 1.5
+                r_dodge = -0.2 + (lateral_displacement / 30.0) * 1.7
+                r_dodge = np.clip(r_dodge, -0.2, 1.5)
                 self.r_msg[idx] += f'闪避({lateral_displacement:.1f}m)+{r_dodge:.2f}, '
 
-            # ---- 向目标前进奖励 ----
+            # ---- 接近目标奖励（开火时削弱） ----
             r_approach = 0.0
+            approach_scale = 0.3 if weapon_state == 3 else 1.0
             if last_p and idx < len(last_p):
                 prev_dist = compute_distance(last_p[idx].position, self.target)
                 if dist_to_target < prev_dist:
                     r_approach = 0.02 * (prev_dist - dist_to_target) / self.uav_velocity_value
-                    r_approach = min(r_approach, 0.05)
+                    r_approach = min(r_approach, 0.05) * approach_scale
                     self.r_msg[idx] += f'靠近+{r_approach:.2f}, '
-            else:
-                r_approach = 0.01
 
             # ---- 太远惩罚 ----
-            r_far_penalty = 0.0
+            r_far = 0.0
             if dist_to_weapon > 2500:
-                r_far_penalty = -0.05
+                r_far = -0.05
                 self.r_msg[idx] += '太远-0.05, '
 
-            # ---- 汇总 ----
-            rewards[idx] = r_step + r_dodge + r_approach + r_far_penalty + r_task_success
+            rewards[idx] = r_step + r_dodge + r_approach + r_far + r_task_success
             rewards[idx] = np.clip(rewards[idx], -2.0, 2.0)
             self.r_msg[idx] += f'dist={dist_to_weapon:.0f}'
 
+        # ===== 4. 队形奖励（促进左右夹击） =====
+        r_formation = 0.0
+        alive_idx = [i for i, uav in enumerate(current_p) if uav.status == UAVState.ALIVE]
+        if len(alive_idx) >= 2:
+            w_pos = np.array(self.weapon[:2], dtype=float)
+            pos0 = np.array(current_p[alive_idx[0]].position[:2], dtype=float)
+            pos1 = np.array(current_p[alive_idx[1]].position[:2], dtype=float)
+            v0 = pos0 - w_pos
+            v1 = pos1 - w_pos
+            norm0 = np.linalg.norm(v0)
+            norm1 = np.linalg.norm(v1)
+            if norm0 > 0 and norm1 > 0:
+                v0 = v0 / norm0
+                v1 = v1 / norm1
+                cos_angle = np.dot(v0, v1)
+                # 夹角接近180°（cos=-1）奖励
+                r_formation = 0.02 * (1 - cos_angle) / 2  # 最大0.02
+                # 分摊到两架飞机
+                for idx in alive_idx:
+                    rewards[idx] += r_formation / len(alive_idx)
+                    self.r_msg[idx] += f'队形+{r_formation / len(alive_idx):.2f}, '
+
         self.reward = rewards
 
-        # ===== 4. 终局判定 =====
+        # ===== 5. 终局判定 =====
         if r_task_success > 0:
             self.append_data(action)
             self.dump("任务完成！")

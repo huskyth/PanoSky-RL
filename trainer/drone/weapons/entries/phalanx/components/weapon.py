@@ -193,11 +193,11 @@ class Bullet(AbstractEntry):
                 if dist_to_impact <= self.explosion_radius:
                     # 进行毁伤判定
                     is_killed = single_probability_event(self.hit_kill_probability)
-                    print(
-                        f"无人机 {fun(uav)} 在爆炸半径内 (距离={dist_to_impact:.1f}m)，"
-                        f"命中概率 {self.hit_kill_probability}，判定结果：{'击毁' if is_killed else '未击毁'}"
-                        f"{self.target}---------{uav}"
-                    )
+                    # print(
+                    #     f"无人机 {fun(uav)} 在爆炸半径内 (距离={dist_to_impact:.1f}m)，"
+                    #     f"命中概率 {self.hit_kill_probability}，判定结果：{'击毁' if is_killed else '未击毁'}"
+                    #     f"{self.target}---------{uav}"
+                    # )
 
                     if is_killed:
                         uav.set_attacked_state(AttackState.DESTROYED)

@@ -2,6 +2,7 @@ import configparser
 import os
 import time
 from pathlib import Path
+import argparse  # 新增
 
 import numpy as np
 import torch
@@ -16,7 +17,6 @@ import gymnasium as gym
 # ==========================================
 try:
     import swanlab as sw
-
     SWANLAB_AVAILABLE = True
 except ImportError:
     SWANLAB_AVAILABLE = False
@@ -45,17 +45,15 @@ class PPOArgs:
     vf_coef = 0.5
     max_grad_norm = 0.5
 
-    save_interval = 5
+    save_interval = 3000
     log_interval = 50
 
     config_name = 'th_demo.ini'
-
-    # ===== 武器开关 =====
-    is_use_weapon = True  # 默认开启武器
+    is_use_weapon = True
 
 
 # ==========================================
-# 2. 神经网络结构
+# 2. 神经网络结构（保持不变）
 # ==========================================
 def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     torch.nn.init.orthogonal_(layer.weight, std)
@@ -129,16 +127,73 @@ class RolloutBuffer:
 
 
 # ==========================================
-# 4. 训练主循环
+# 4. 辅助函数：加载最近的 checkpoint
 # ==========================================
-def train():
+def load_latest_checkpoint(actor, critic, optimizer, checkpoint_dir='checkpoints', args=None):
+    """加载最新的 checkpoint，返回 (global_step, 是否成功)"""
+    if not os.path.exists(checkpoint_dir):
+        return 0, False
+
+    # 查找所有 actor 的 checkpoint 文件
+    pattern = "mappo_actor_step_*.pth"
+    import glob
+    files = glob.glob(os.path.join(checkpoint_dir, pattern))
+    if not files:
+        return 0, False
+
+    # 提取步数并排序
+    step_nums = []
+    for f in files:
+        try:
+            # 文件名格式：mappo_actor_step_12345.pth
+            step = int(f.split('_')[-1].split('.')[0])
+            step_nums.append((step, f))
+        except:
+            continue
+
+    if not step_nums:
+        return 0, False
+
+    step_nums.sort(key=lambda x: x[0])
+    latest_step, latest_file = step_nums[-1]
+
+    # 加载 actor
+    actor.load_state_dict(torch.load(latest_file, map_location=args.device))
+    print(f"✅ 加载 Actor 权重: {latest_file}")
+
+    # 尝试加载对应的 Critic
+    critic_file = latest_file.replace('actor', 'critic')
+    if os.path.exists(critic_file):
+        critic.load_state_dict(torch.load(critic_file, map_location=args.device))
+        print(f"✅ 加载 Critic 权重: {critic_file}")
+    else:
+        print(f"⚠️ 未找到 Critic 权重文件: {critic_file}，跳过加载")
+
+    # 尝试加载 optimizer 状态（可选）
+    opt_file = latest_file.replace('actor', 'optimizer')
+    if os.path.exists(opt_file):
+        optimizer.load_state_dict(torch.load(opt_file, map_location=args.device))
+        print(f"✅ 加载 Optimizer 状态: {opt_file}")
+
+    return latest_step, True
+
+
+# ==========================================
+# 5. 训练主循环（修改为支持 resume）
+# ==========================================
+def train(resume=False):
     args = PPOArgs()
+
+    # ---- 解析命令行参数（支持 --resume） ----
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--resume', action='store_true', help='从最新的 checkpoint 继续训练')
+    parsed_args, unknown = parser.parse_known_args()
+    resume = True
 
     # ==========================================
     # SwanLab 初始化
     # ==========================================
     if SWANLAB_AVAILABLE:
-        # 从环境变量读取 API Key（推荐）
         api_key = os.environ.get("SWANLAB_API_KEY", None)
         if api_key:
             sw.login(api_key=api_key)
@@ -185,9 +240,9 @@ def train():
         is_use_weapon=args.is_use_weapon
     )
 
-    # ---- 获取维度（关键修复：直接取实际观测长度） ----
+    # ---- 获取维度 ----
     obs_list = env.reset()
-    obs_dim = len(obs_list[0])  # 直接取实际观测的长度，保证与 env.step 返回一致
+    obs_dim = len(obs_list[0])
     action_dim = env.action_space[0].shape[0]
     num_agents = env.n_total_uavs
     global_state_dim = obs_dim * num_agents
@@ -203,6 +258,18 @@ def train():
         {'params': critic.parameters(), 'lr': args.lr}
     ], eps=1e-5)
 
+    # ==========================================
+    # 新增：加载 checkpoint（如果 resume=True）
+    # ==========================================
+    global_step = 0
+    if resume:
+        loaded_step, success = load_latest_checkpoint(actor, critic, optimizer, args=args)
+        if success:
+            global_step = loaded_step
+            print(f"✅ 从步数 {global_step} 继续训练")
+        else:
+            print("⚠️ 未找到 checkpoint，从头开始训练")
+
     buffer = RolloutBuffer(args.num_steps, num_agents, obs_dim, global_state_dim, action_dim, args.device)
 
     # ---- 日志 ----
@@ -211,7 +278,6 @@ def train():
     ep_success = deque(maxlen=args.log_interval)
     all_episode_rewards = []
 
-    global_step = 0
     start_time = time.time()
 
     obs_list = env.reset()
@@ -228,7 +294,7 @@ def train():
     print("-" * 80)
 
     if SWANLAB_AVAILABLE:
-        sw.log({"train/start": 1}, step=0)
+        sw.log({"train/start": 1}, step=global_step)
 
     while global_step < args.total_timesteps:
         # ---- 阶段 A：收集数据 ----
@@ -405,12 +471,17 @@ def train():
 
         buffer.clear()
 
-        # ---- 阶段 C：模型持久化 ----
+        # ---- 阶段 C：模型持久化（保存 actor, critic, optimizer） ----
         if global_step % args.save_interval == 0 or global_step >= args.total_timesteps:
             os.makedirs("checkpoints", exist_ok=True)
-            model_path = f"checkpoints/mappo_actor_step_{global_step}.pth"
-            torch.save(actor.state_dict(), model_path)
-            print(f">>> 模型已保存至: {model_path}")
+            actor_path = f"checkpoints/mappo_actor_step_{global_step}.pth"
+            critic_path = f"checkpoints/mappo_critic_step_{global_step}.pth"
+            opt_path = f"checkpoints/mappo_optimizer_step_{global_step}.pth"
+
+            torch.save(actor.state_dict(), actor_path)
+            torch.save(critic.state_dict(), critic_path)
+            torch.save(optimizer.state_dict(), opt_path)
+            print(f">>> 模型已保存至: {actor_path}")
 
             if SWANLAB_AVAILABLE:
                 sw.log({
@@ -467,6 +538,7 @@ def train():
 
 
 if __name__ == "__main__":
-    sw.login(api_key="rdGaOSnlBY0KBDnNdkzja")
-    torch.set_num_threads(4)
-    train()
+    # 支持命令行参数：python train.py --resume
+    import sys
+    resume = '--resume' in sys.argv
+    train(resume=True)
