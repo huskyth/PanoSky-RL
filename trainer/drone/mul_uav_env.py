@@ -637,7 +637,7 @@ class MultiUavEnv:
                 self.r_msg[idx] = f'{idx}阵亡，'
                 continue
 
-            r_step = -0.01
+            r_step = -0.015
             dist_to_weapon = compute_distance(uav.position, self.weapon)
             dist_to_target = compute_distance(uav.position, self.target)
 
@@ -665,7 +665,7 @@ class MultiUavEnv:
                     # 连续闪避，计数+1
                     self.dodge_count += 1
                     # 递增奖励：第一次 +0.5，第二次 +0.8，第三次 +1.1...
-                    r_dodge = 0.005 + 0.003 * (self.dodge_count - 1)
+                    r_dodge = 0.00005 + 0.00003 * (self.dodge_count - 1)
                     r_dodge = min(r_dodge, 2.0)  # 上限 2.0
                     self.r_msg[idx] += f'闪避x{self.dodge_count}+{r_dodge:.2f}, '
                 else:
