@@ -679,7 +679,7 @@ class MultiUavEnv:
             r_dodge = 0.0
             if weapon_state == 3:  # FIRE
                 # 位移 0~30m 映射到 -0.2 ~ 1.5
-                r_dodge = -0.2 + (lateral_displacement / 30.0) * 1.7
+                r_dodge = -0.5 + (lateral_displacement / 200.0) * 2.5
                 r_dodge = np.clip(r_dodge, -0.2, 1.5)
                 self.r_msg[idx] += f'闪避({lateral_displacement:.1f}m)+{r_dodge:.2f}, '
 
@@ -719,7 +719,7 @@ class MultiUavEnv:
                 v1 = v1 / norm1
                 cos_angle = np.dot(v0, v1)
                 # 夹角接近180°（cos=-1）奖励
-                r_formation = 0.02 * (1 - cos_angle) / 2  # 最大0.02
+                r_formation = 0.02 * (1 - cos_angle) / 2 - 0.02  # 最大0.02
                 # 分摊到两架飞机
                 for idx in alive_idx:
                     rewards[idx] += r_formation / len(alive_idx)
